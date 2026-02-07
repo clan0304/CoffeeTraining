@@ -90,87 +90,41 @@ export default function RoomPage() {
     }
   }, [room?.status, showCountdown])
 
-  // Real-time subscription for room updates
+  // Store channel ref for broadcasting
+  const [roomChannel, setRoomChannel] = useState<ReturnType<typeof supabase.channel> | null>(null)
+
+  // Real-time subscription using Broadcast (doesn't require RLS)
   useEffect(() => {
-    if (!roomId || !supabase || !session) return
+    if (!roomId || !supabase) return
 
-    let playersChannel: ReturnType<typeof supabase.channel> | null = null
-    let invitationsChannel: ReturnType<typeof supabase.channel> | null = null
-    let roomChannel: ReturnType<typeof supabase.channel> | null = null
+    // Create a single channel for the room with broadcast capability
+    const channel = supabase.channel(`room_sync_${roomId}`, {
+      config: {
+        broadcast: { self: true }, // Receive own broadcasts too
+      },
+    })
 
-    // Set up realtime subscriptions with auth
-    const setupSubscriptions = async () => {
-      // Get Clerk token and set it for realtime
-      const token = await session.getToken({ template: 'supabase' })
-      if (token) {
-        supabase.realtime.setAuth(token)
+    // Listen for game events via broadcast (instant, no RLS needed)
+    channel.on('broadcast', { event: 'game_start' }, () => {
+      setShowCountdown(true)
+    })
+
+    // Listen for room data changes via broadcast
+    channel.on('broadcast', { event: 'room_updated' }, () => {
+      loadRoom()
+    })
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setRoomChannel(channel)
       }
-
-      // Subscribe to room_players changes
-      playersChannel = supabase
-        .channel(`room_players_${roomId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'room_players',
-            filter: `room_id=eq.${roomId}`,
-          },
-          () => {
-            loadRoom()
-          }
-        )
-        .subscribe()
-
-      // Subscribe to room_invitations changes
-      invitationsChannel = supabase
-        .channel(`room_invitations_${roomId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'room_invitations',
-            filter: `room_id=eq.${roomId}`,
-          },
-          () => {
-            loadRoom()
-          }
-        )
-        .subscribe()
-
-      // Subscribe to room status changes
-      roomChannel = supabase
-        .channel(`room_${roomId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'rooms',
-            filter: `id=eq.${roomId}`,
-          },
-          (payload) => {
-            const newStatus = (payload.new as { status?: string })?.status
-            // If status changed to 'countdown', show countdown for all players
-            if (newStatus === 'countdown') {
-              setShowCountdown(true)
-            }
-            loadRoom()
-          }
-        )
-        .subscribe()
-    }
-
-    setupSubscriptions()
+    })
 
     return () => {
-      if (playersChannel) supabase.removeChannel(playersChannel)
-      if (invitationsChannel) supabase.removeChannel(invitationsChannel)
-      if (roomChannel) supabase.removeChannel(roomChannel)
+      supabase.removeChannel(channel)
+      setRoomChannel(null)
     }
-  }, [roomId, loadRoom, supabase, session])
+  }, [roomId, supabase, loadRoom])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -187,7 +141,9 @@ export default function RoomPage() {
     } else {
       setInviteSuccess(`Invitation sent to @${inviteUsername}`)
       setInviteUsername('')
-      loadRoom() // Refresh room data
+      loadRoom()
+      // Broadcast update to all players
+      roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
     }
 
     setInviteLoading(false)
@@ -197,6 +153,7 @@ export default function RoomPage() {
     const result = await cancelInvitation(invitationId)
     if (!result.error) {
       loadRoom()
+      roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
     }
   }
 
@@ -218,16 +175,22 @@ export default function RoomPage() {
   const handleStartGame = async () => {
     setStartingGame(true)
 
-    // Try to set status to 'countdown' for sync across all players
+    // Try to set status to 'countdown' in database
     const result = await startGame(roomId)
 
     if (result.error) {
-      // If countdown status not supported (migration not run), fall back to local countdown
-      console.warn('Countdown status not available, using local fallback:', result.error)
+      console.warn('Start game error:', result.error)
     }
 
-    // Show countdown for host immediately (works even if DB countdown status failed)
-    setShowCountdown(true)
+    // Broadcast game_start to all players in the room (instant sync)
+    if (roomChannel) {
+      roomChannel.send({
+        type: 'broadcast',
+        event: 'game_start',
+        payload: {},
+      })
+    }
+
     setStartingGame(false)
   }
 
@@ -245,6 +208,8 @@ export default function RoomPage() {
       if (result.error) {
         console.error('Begin playing error:', result.error)
       }
+      // Broadcast that game is now playing
+      roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
     }
 
     // Refresh room data
@@ -282,6 +247,11 @@ export default function RoomPage() {
     loadRoom()
   }
 
+  // Helper to broadcast room updates
+  const broadcastUpdate = () => {
+    roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
+  }
+
   // Coffee management
   const handleAddCoffee = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -292,6 +262,7 @@ export default function RoomPage() {
     if (!result.error) {
       setCoffeeName('')
       loadRoom()
+      broadcastUpdate()
     }
     setCoffeeLoading(false)
   }
@@ -299,6 +270,7 @@ export default function RoomPage() {
   const handleRemoveCoffee = async (coffeeId: string) => {
     await removeCoffee(coffeeId)
     loadRoom()
+    broadcastUpdate()
   }
 
   // Set management
@@ -307,6 +279,7 @@ export default function RoomPage() {
     const result = await generateTriangulationSet(roomId)
     if (!result.error) {
       loadRoom()
+      broadcastUpdate()
     }
     setGeneratingSet(false)
   }
@@ -314,6 +287,7 @@ export default function RoomPage() {
   const handleDeleteSet = async (setId: string) => {
     await deleteSet(setId)
     loadRoom()
+    broadcastUpdate()
   }
 
   const handleCreateManualSet = async () => {
@@ -322,6 +296,7 @@ export default function RoomPage() {
     if (!result.error && result.set) {
       setEditingSetId(result.set.id)
       loadRoom()
+      broadcastUpdate()
     }
     setCreatingManualSet(false)
   }
@@ -334,6 +309,7 @@ export default function RoomPage() {
   ) => {
     await updateSetRow(rowId, pairCoffeeId, oddCoffeeId, oddPosition)
     loadRoom()
+    broadcastUpdate()
   }
 
   if (loading) {
