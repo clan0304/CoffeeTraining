@@ -4,22 +4,42 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@clerk/nextjs'
+import { useSupabaseClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { getRoomDetails, inviteUserByUsername, cancelInvitation, deleteRoom } from '@/actions/rooms'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile } from '@/types/database'
+import { Timer } from '@/components/training/timer'
+import { AnswerSheet } from '@/components/training/answer-sheet'
+import { Countdown } from '@/components/training/countdown'
+import {
+  getRoomDetails,
+  inviteUserByUsername,
+  cancelInvitation,
+  deleteRoom,
+  startGame,
+  beginPlaying,
+  addCoffee,
+  removeCoffee,
+  generateTriangulationSet,
+  createEmptySet,
+  updateSetRow,
+  deleteSet,
+} from '@/actions/rooms'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@/types/database'
 
 type RoomWithDetails = Room & {
   players: Array<RoomPlayer & { profile: PublicProfile | null }>
   invitations: Array<RoomInvitation & { invited_profile: PublicProfile | null }>
+  coffees: RoomCoffee[]
+  sets: Array<RoomSet & { rows: Array<RoomSetRow & { pair_coffee: RoomCoffee; odd_coffee: RoomCoffee }> }>
 }
 
 export default function RoomPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
+  const supabase = useSupabaseClient()
   const roomId = params.id as string
 
   const [room, setRoom] = useState<RoomWithDetails | null>(null)
@@ -30,6 +50,22 @@ export default function RoomPage() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
+  const [startingGame, setStartingGame] = useState(false)
+
+  // Coffee management
+  const [coffeeName, setCoffeeName] = useState('')
+  const [coffeeLoading, setCoffeeLoading] = useState(false)
+
+  // Set management
+  const [generatingSet, setGeneratingSet] = useState(false)
+  const [creatingManualSet, setCreatingManualSet] = useState(false)
+  const [editingSetId, setEditingSetId] = useState<string | null>(null)
+
+  // Game state
+  const [showCountdown, setShowCountdown] = useState(false)
+  const [gamePhase, setGamePhase] = useState<'playing' | 'inputting' | 'finished'>('playing')
+  const [answers, setAnswers] = useState<(number | null)[]>(Array(8).fill(null))
+  const [correctAnswers, setCorrectAnswers] = useState<(number | null)[]>(Array(8).fill(null))
 
   const loadRoom = useCallback(async () => {
     const result = await getRoomDetails(roomId)
@@ -44,6 +80,73 @@ export default function RoomPage() {
   useEffect(() => {
     loadRoom()
   }, [loadRoom])
+
+  // Real-time subscription for room updates
+  useEffect(() => {
+    if (!roomId || !supabase) return
+
+    // Subscribe to room_players changes
+    const playersChannel = supabase
+      .channel(`room_players_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_players',
+          filter: `room_id=eq.${roomId}`,
+        },
+        () => {
+          loadRoom()
+        }
+      )
+      .subscribe()
+
+    // Subscribe to room_invitations changes
+    const invitationsChannel = supabase
+      .channel(`room_invitations_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_invitations',
+          filter: `room_id=eq.${roomId}`,
+        },
+        () => {
+          loadRoom()
+        }
+      )
+      .subscribe()
+
+    // Subscribe to room status changes
+    const roomChannel = supabase
+      .channel(`room_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rooms',
+          filter: `id=eq.${roomId}`,
+        },
+        (payload) => {
+          const newStatus = (payload.new as { status?: string })?.status
+          // If status changed to 'countdown', show countdown for all players
+          if (newStatus === 'countdown') {
+            setShowCountdown(true)
+          }
+          loadRoom()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(playersChannel)
+      supabase.removeChannel(invitationsChannel)
+      supabase.removeChannel(roomChannel)
+    }
+  }, [roomId, loadRoom, supabase])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -88,6 +191,127 @@ export default function RoomPage() {
     }
   }
 
+  const handleStartGame = async () => {
+    setStartingGame(true)
+
+    // Try to set status to 'countdown' for sync across all players
+    const result = await startGame(roomId)
+
+    if (result.error) {
+      // If countdown status not supported (migration not run), fall back to local countdown
+      console.warn('Countdown status not available, using local fallback:', result.error)
+    }
+
+    // Show countdown for host immediately (works even if DB countdown status failed)
+    setShowCountdown(true)
+    setStartingGame(false)
+  }
+
+  const handleCountdownComplete = async () => {
+    setShowCountdown(false)
+
+    // Reset game state
+    setAnswers(Array(8).fill(null))
+    setCorrectAnswers(Array(8).fill(null))
+    setGamePhase('playing')
+
+    // Only host should call beginPlaying to set status to 'playing'
+    if (user?.id === room?.host_id) {
+      const result = await beginPlaying(roomId)
+      if (result.error) {
+        console.error('Begin playing error:', result.error)
+      }
+    }
+
+    // Refresh room data
+    loadRoom()
+  }
+
+  const handleTimeUp = () => {
+    setGamePhase('inputting')
+  }
+
+  const handleSubmitAnswers = () => {
+    setGamePhase('inputting')
+  }
+
+  const handleAnswerChange = (rowIndex: number, position: number) => {
+    setAnswers((prev) => {
+      const newAnswers = [...prev]
+      newAnswers[rowIndex] = prev[rowIndex] === position ? null : position
+      return newAnswers
+    })
+  }
+
+  const handleCorrectAnswerChange = (rowIndex: number, position: number) => {
+    setCorrectAnswers((prev) => {
+      const newCorrect = [...prev]
+      newCorrect[rowIndex] = prev[rowIndex] === position ? null : position
+      return newCorrect
+    })
+  }
+
+  const handleBackToLobby = () => {
+    setGamePhase('playing')
+    setAnswers(Array(8).fill(null))
+    setCorrectAnswers(Array(8).fill(null))
+    loadRoom()
+  }
+
+  // Coffee management
+  const handleAddCoffee = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!coffeeName.trim()) return
+
+    setCoffeeLoading(true)
+    const result = await addCoffee(roomId, coffeeName.trim())
+    if (!result.error) {
+      setCoffeeName('')
+      loadRoom()
+    }
+    setCoffeeLoading(false)
+  }
+
+  const handleRemoveCoffee = async (coffeeId: string) => {
+    await removeCoffee(coffeeId)
+    loadRoom()
+  }
+
+  // Set management
+  const handleGenerateSet = async () => {
+    setGeneratingSet(true)
+    const result = await generateTriangulationSet(roomId)
+    if (!result.error) {
+      loadRoom()
+    }
+    setGeneratingSet(false)
+  }
+
+  const handleDeleteSet = async (setId: string) => {
+    await deleteSet(setId)
+    loadRoom()
+  }
+
+  const handleCreateManualSet = async () => {
+    setCreatingManualSet(true)
+    const result = await createEmptySet(roomId)
+    if (!result.error && result.set) {
+      setEditingSetId(result.set.id)
+      loadRoom()
+    }
+    setCreatingManualSet(false)
+  }
+
+  const handleUpdateRow = async (
+    rowId: string,
+    pairCoffeeId: string,
+    oddCoffeeId: string,
+    oddPosition: number
+  ) => {
+    await updateSetRow(rowId, pairCoffeeId, oddCoffeeId, oddPosition)
+    loadRoom()
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -112,7 +336,97 @@ export default function RoomPage() {
 
   const isHost = user?.id === room.host_id
   const pendingInvitations = room.invitations.filter((i) => i.status === 'pending')
+  const answeredCount = answers.filter((a) => a !== null).length
+  const correctCount = correctAnswers.filter((a) => a !== null).length
+  const allRevealed = correctCount === 8
 
+  // Countdown view - shown when host starts the game
+  if (showCountdown) {
+    return <Countdown from={5} onComplete={handleCountdownComplete} />
+  }
+
+  // Playing view - tasting and marking guesses
+  // Show playing view when game is active (playing status OR countdown finished locally)
+  const isGameActive = room.status === 'playing' || (room.status === 'countdown' && !showCountdown)
+  if (isGameActive && gamePhase === 'playing') {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-md mx-auto space-y-6 pt-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold">{room.name || 'Training Room'}</h1>
+            <Button variant="ghost" size="sm" onClick={handleSubmitAnswers}>
+              Done
+            </Button>
+          </div>
+
+          <Timer
+            initialMinutes={room.timer_minutes}
+            onTimeUp={handleTimeUp}
+            startTime={room.timer_started_at || undefined}
+          />
+
+          <AnswerSheet
+            answers={answers}
+            onSelect={handleAnswerChange}
+            mode="guess"
+          />
+
+          <Button
+            onClick={handleSubmitAnswers}
+            className="w-full"
+            disabled={answeredCount === 0}
+          >
+            Submit Answers ({answeredCount}/8)
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Inputting view - checking cups and seeing results
+  if (isGameActive && gamePhase === 'inputting') {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-md mx-auto space-y-6 pt-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold">Check Cups</h1>
+            {allRevealed && (
+              <Button variant="ghost" size="sm" onClick={handleBackToLobby}>
+                Done
+              </Button>
+            )}
+          </div>
+
+          {!allRevealed && (
+            <Card className="bg-muted/50">
+              <CardContent className="pt-4">
+                <p className="text-sm text-center text-muted-foreground">
+                  Tap the odd cup for each row to see if you were right
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          <AnswerSheet
+            answers={answers}
+            correctAnswers={correctAnswers}
+            onSelect={handleCorrectAnswerChange}
+            mode="input"
+          />
+
+          {allRevealed && (
+            <div className="space-y-2">
+              <Button onClick={handleBackToLobby} className="w-full">
+                Back to Room
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Waiting lobby view
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-md mx-auto space-y-6 pt-4">
@@ -260,6 +574,164 @@ export default function RoomPage() {
           </CardContent>
         </Card>
 
+        {/* Coffee Setup (Host only) */}
+        {isHost && room.status === 'waiting' && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Coffees ({room.coffees.length})</CardTitle>
+              <CardDescription>Add at least 2 coffees for triangulation</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Coffee list */}
+              {room.coffees.length > 0 && (
+                <div className="space-y-2">
+                  {room.coffees.map((coffee) => (
+                    <div
+                      key={coffee.id}
+                      className="flex items-center justify-between py-2 px-3 bg-muted rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-primary">{coffee.label}</span>
+                        <span className="font-medium">{coffee.name}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveCoffee(coffee.id)}
+                        className="text-muted-foreground hover:text-red-500"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add coffee form */}
+              <form onSubmit={handleAddCoffee} className="flex gap-2">
+                <Input
+                  placeholder="Coffee name (e.g., Ethiopia Yirgacheffe)"
+                  value={coffeeName}
+                  onChange={(e) => setCoffeeName(e.target.value)}
+                  disabled={coffeeLoading}
+                />
+                <Button type="submit" disabled={coffeeLoading || !coffeeName.trim()}>
+                  Add
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Triangulation Sets (Host only) */}
+        {isHost && room.status === 'waiting' && room.coffees.length >= 2 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Triangulation Sets ({room.sets.length})</CardTitle>
+              <CardDescription>Generate or manually create sets</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Set list */}
+              {room.sets.map((set) => (
+                <div key={set.id} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium">Set {set.set_number}</span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingSetId(editingSetId === set.id ? null : set.id)}
+                        className="text-muted-foreground"
+                      >
+                        {editingSetId === set.id ? 'Done' : 'Edit'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteSet(set.id)}
+                        className="text-muted-foreground hover:text-red-500"
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* View mode */}
+                  {editingSetId !== set.id && (
+                    <div className="space-y-1 text-sm">
+                      {set.rows.map((row) => (
+                        <div key={row.id} className="flex items-center gap-2 text-muted-foreground">
+                          <span className="w-6">{row.row_number}.</span>
+                          <span className="font-mono">
+                            <span>{row.pair_coffee.label}</span>
+                            <span className="mx-1">{row.pair_coffee.label}</span>
+                            <span className="text-primary font-bold">{row.odd_coffee.label}</span>
+                          </span>
+                          <span className="text-xs">
+                            (odd at cup {row.odd_position})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Edit mode */}
+                  {editingSetId === set.id && (
+                    <div className="space-y-2">
+                      {set.rows.map((row) => (
+                        <div key={row.id} className="flex items-center gap-2 py-1 border-b last:border-0">
+                          <span className="w-6 text-sm font-medium">{row.row_number}.</span>
+                          <select
+                            value={row.pair_coffee.id}
+                            onChange={(e) => handleUpdateRow(row.id, e.target.value, row.odd_coffee.id, row.odd_position)}
+                            className="flex-1 text-sm p-1 border rounded bg-background"
+                          >
+                            {room.coffees.filter(c => c.id !== row.odd_coffee.id).map((coffee) => (
+                              <option key={coffee.id} value={coffee.id}>
+                                {coffee.label}: {coffee.name} (pair)
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={row.odd_coffee.id}
+                            onChange={(e) => handleUpdateRow(row.id, row.pair_coffee.id, e.target.value, row.odd_position)}
+                            className="flex-1 text-sm p-1 border rounded bg-background"
+                          >
+                            {room.coffees.filter(c => c.id !== row.pair_coffee.id).map((coffee) => (
+                              <option key={coffee.id} value={coffee.id}>
+                                {coffee.label}: {coffee.name} (odd)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleGenerateSet}
+                  disabled={generatingSet}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  {generatingSet ? 'Generating...' : 'Auto Generate'}
+                </Button>
+                <Button
+                  onClick={handleCreateManualSet}
+                  disabled={creatingManualSet}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  {creatingManualSet ? 'Creating...' : 'Manual Create'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Timer Info */}
         <Card>
           <CardContent className="pt-4">
@@ -277,13 +749,16 @@ export default function RoomPage() {
               <Button
                 className="w-full"
                 size="lg"
-                disabled={room.players.length < 2}
+                onClick={handleStartGame}
+                disabled={startingGame || room.coffees.length < 2 || room.sets.length === 0}
               >
-                Start Game
+                {startingGame ? 'Starting...' : 'Start Game'}
               </Button>
-              {room.players.length < 2 && (
+              {(room.coffees.length < 2 || room.sets.length === 0) && (
                 <p className="text-xs text-muted-foreground text-center">
-                  Need at least 2 players to start
+                  {room.coffees.length < 2
+                    ? 'Add at least 2 coffees'
+                    : 'Generate at least 1 triangulation set'}
                 </p>
               )}
             </>

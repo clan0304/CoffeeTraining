@@ -39,7 +39,7 @@ export interface PublicProfile {
 // ROOMS
 // =============================================
 
-export type RoomStatus = 'waiting' | 'playing' | 'finished'
+export type RoomStatus = 'waiting' | 'countdown' | 'playing' | 'finished'
 
 export interface Room {
   id: string

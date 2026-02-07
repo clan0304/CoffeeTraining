@@ -10,6 +10,8 @@ interface TimerProps {
   onStart?: () => void
   onPause?: () => void
   onReset?: () => void
+  startTime?: string  // ISO timestamp when timer was started (for room sync)
+  autoStart?: boolean // Auto-start on mount
 }
 
 export function Timer({
@@ -18,10 +20,24 @@ export function Timer({
   onStart,
   onPause,
   onReset,
+  startTime,
+  autoStart = false,
 }: TimerProps) {
-  const [totalSeconds, setTotalSeconds] = useState(initialMinutes * 60)
-  const [isRunning, setIsRunning] = useState(false)
-  const [hasStarted, setHasStarted] = useState(false)
+  // Calculate initial seconds based on startTime if provided
+  const calculateRemainingSeconds = useCallback(() => {
+    if (startTime) {
+      const startMs = new Date(startTime).getTime()
+      const nowMs = Date.now()
+      const elapsedSeconds = Math.floor((nowMs - startMs) / 1000)
+      const remaining = (initialMinutes * 60) - elapsedSeconds
+      return Math.max(0, remaining)
+    }
+    return initialMinutes * 60
+  }, [startTime, initialMinutes])
+
+  const [totalSeconds, setTotalSeconds] = useState(calculateRemainingSeconds)
+  const [isRunning, setIsRunning] = useState(!!startTime || autoStart)
+  const [hasStarted, setHasStarted] = useState(!!startTime || autoStart)
 
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
