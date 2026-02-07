@@ -1,0 +1,141 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+
+interface TimerProps {
+  initialMinutes?: number
+  onTimeUp?: () => void
+  onStart?: () => void
+  onPause?: () => void
+  onReset?: () => void
+}
+
+export function Timer({
+  initialMinutes = 8,
+  onTimeUp,
+  onStart,
+  onPause,
+  onReset,
+}: TimerProps) {
+  const [totalSeconds, setTotalSeconds] = useState(initialMinutes * 60)
+  const [isRunning, setIsRunning] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  // Format time display
+  const formatTime = (mins: number, secs: number) => {
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Timer countdown
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+
+    if (isRunning && totalSeconds > 0) {
+      interval = setInterval(() => {
+        setTotalSeconds((prev) => {
+          if (prev <= 1) {
+            setIsRunning(false)
+            onTimeUp?.()
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [isRunning, totalSeconds, onTimeUp])
+
+  const handleStart = useCallback(() => {
+    setIsRunning(true)
+    setHasStarted(true)
+    onStart?.()
+  }, [onStart])
+
+  const handlePause = useCallback(() => {
+    setIsRunning(false)
+    onPause?.()
+  }, [onPause])
+
+  const handleReset = useCallback(() => {
+    setIsRunning(false)
+    setHasStarted(false)
+    setTotalSeconds(initialMinutes * 60)
+    onReset?.()
+  }, [initialMinutes, onReset])
+
+  // Determine timer color based on remaining time
+  const getTimerColor = () => {
+    if (totalSeconds === 0) return 'text-destructive'
+    if (totalSeconds <= 60) return 'text-destructive animate-pulse'
+    if (totalSeconds <= 120) return 'text-orange-500'
+    return 'text-foreground'
+  }
+
+  return (
+    <Card className="w-full max-w-sm mx-auto">
+      <CardContent className="pt-6">
+        <div className="text-center space-y-4">
+          {/* Timer Display */}
+          <div
+            className={`text-6xl font-mono font-bold tabular-nums ${getTimerColor()}`}
+          >
+            {formatTime(minutes, seconds)}
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-muted rounded-full h-2">
+            <div
+              className="bg-primary h-2 rounded-full transition-all duration-1000"
+              style={{
+                width: `${(totalSeconds / (initialMinutes * 60)) * 100}%`,
+              }}
+            />
+          </div>
+
+          {/* Controls */}
+          <div className="flex justify-center gap-2">
+            {!isRunning ? (
+              <Button
+                onClick={handleStart}
+                disabled={totalSeconds === 0}
+                className="w-24"
+              >
+                {hasStarted ? 'Resume' : 'Start'}
+              </Button>
+            ) : (
+              <Button
+                onClick={handlePause}
+                variant="secondary"
+                className="w-24"
+              >
+                Pause
+              </Button>
+            )}
+            <Button
+              onClick={handleReset}
+              variant="outline"
+              className="w-24"
+            >
+              Reset
+            </Button>
+          </div>
+
+          {/* Time up message */}
+          {totalSeconds === 0 && (
+            <div className="text-destructive font-semibold animate-bounce">
+              Time&apos;s Up!
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
