@@ -182,7 +182,10 @@ export default function RoomPage() {
       console.warn('Start game error:', result.error)
     }
 
-    // Broadcast game_start to all players in the room (instant sync)
+    // Show countdown immediately for host
+    setShowCountdown(true)
+
+    // Broadcast game_start to all other players in the room
     if (roomChannel) {
       roomChannel.send({
         type: 'broadcast',
