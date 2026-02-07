@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useSession } from '@clerk/nextjs'
 import { useSupabaseClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -39,6 +39,7 @@ export default function RoomPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
+  const { session } = useSession()
   const supabase = useSupabaseClient()
   const roomId = params.id as string
 
@@ -81,72 +82,95 @@ export default function RoomPage() {
     loadRoom()
   }, [loadRoom])
 
+  // Watch room status and show countdown when status is 'countdown'
+  // This is a fallback in case realtime doesn't trigger immediately
+  useEffect(() => {
+    if (room?.status === 'countdown' && !showCountdown) {
+      setShowCountdown(true)
+    }
+  }, [room?.status, showCountdown])
+
   // Real-time subscription for room updates
   useEffect(() => {
-    if (!roomId || !supabase) return
+    if (!roomId || !supabase || !session) return
 
-    // Subscribe to room_players changes
-    const playersChannel = supabase
-      .channel(`room_players_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_players',
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          loadRoom()
-        }
-      )
-      .subscribe()
+    let playersChannel: ReturnType<typeof supabase.channel> | null = null
+    let invitationsChannel: ReturnType<typeof supabase.channel> | null = null
+    let roomChannel: ReturnType<typeof supabase.channel> | null = null
 
-    // Subscribe to room_invitations changes
-    const invitationsChannel = supabase
-      .channel(`room_invitations_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_invitations',
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          loadRoom()
-        }
-      )
-      .subscribe()
+    // Set up realtime subscriptions with auth
+    const setupSubscriptions = async () => {
+      // Get Clerk token and set it for realtime
+      const token = await session.getToken({ template: 'supabase' })
+      if (token) {
+        supabase.realtime.setAuth(token)
+      }
 
-    // Subscribe to room status changes
-    const roomChannel = supabase
-      .channel(`room_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'rooms',
-          filter: `id=eq.${roomId}`,
-        },
-        (payload) => {
-          const newStatus = (payload.new as { status?: string })?.status
-          // If status changed to 'countdown', show countdown for all players
-          if (newStatus === 'countdown') {
-            setShowCountdown(true)
+      // Subscribe to room_players changes
+      playersChannel = supabase
+        .channel(`room_players_${roomId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'room_players',
+            filter: `room_id=eq.${roomId}`,
+          },
+          () => {
+            loadRoom()
           }
-          loadRoom()
-        }
-      )
-      .subscribe()
+        )
+        .subscribe()
+
+      // Subscribe to room_invitations changes
+      invitationsChannel = supabase
+        .channel(`room_invitations_${roomId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'room_invitations',
+            filter: `room_id=eq.${roomId}`,
+          },
+          () => {
+            loadRoom()
+          }
+        )
+        .subscribe()
+
+      // Subscribe to room status changes
+      roomChannel = supabase
+        .channel(`room_${roomId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'rooms',
+            filter: `id=eq.${roomId}`,
+          },
+          (payload) => {
+            const newStatus = (payload.new as { status?: string })?.status
+            // If status changed to 'countdown', show countdown for all players
+            if (newStatus === 'countdown') {
+              setShowCountdown(true)
+            }
+            loadRoom()
+          }
+        )
+        .subscribe()
+    }
+
+    setupSubscriptions()
 
     return () => {
-      supabase.removeChannel(playersChannel)
-      supabase.removeChannel(invitationsChannel)
-      supabase.removeChannel(roomChannel)
+      if (playersChannel) supabase.removeChannel(playersChannel)
+      if (invitationsChannel) supabase.removeChannel(invitationsChannel)
+      if (roomChannel) supabase.removeChannel(roomChannel)
     }
-  }, [roomId, loadRoom, supabase])
+  }, [roomId, loadRoom, supabase, session])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
