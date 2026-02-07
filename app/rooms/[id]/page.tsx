@@ -92,10 +92,13 @@ export default function RoomPage() {
 
   // Store channel ref for broadcasting
   const [roomChannel, setRoomChannel] = useState<ReturnType<typeof supabase.channel> | null>(null)
+  const [channelReady, setChannelReady] = useState(false)
 
   // Real-time subscription using Broadcast (doesn't require RLS)
   useEffect(() => {
     if (!roomId || !supabase) return
+
+    console.log('[Realtime] Setting up channel for room:', roomId)
 
     // Create a single channel for the room with broadcast capability
     const channel = supabase.channel(`room_sync_${roomId}`, {
@@ -105,26 +108,37 @@ export default function RoomPage() {
     })
 
     // Listen for game events via broadcast (instant, no RLS needed)
-    channel.on('broadcast', { event: 'game_start' }, () => {
+    channel.on('broadcast', { event: 'game_start' }, (payload) => {
+      console.log('[Realtime] Received game_start broadcast:', payload)
       setShowCountdown(true)
     })
 
     // Listen for room data changes via broadcast
-    channel.on('broadcast', { event: 'room_updated' }, () => {
-      loadRoom()
+    channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
+      console.log('[Realtime] Received room_updated broadcast:', payload)
+      // Fetch fresh room data
+      const result = await getRoomDetails(roomId)
+      if (!result.error && result.room) {
+        setRoom(result.room)
+      }
     })
 
     channel.subscribe((status) => {
+      console.log('[Realtime] Channel status:', status)
       if (status === 'SUBSCRIBED') {
+        console.log('[Realtime] Channel subscribed successfully!')
         setRoomChannel(channel)
+        setChannelReady(true)
       }
     })
 
     return () => {
+      console.log('[Realtime] Cleaning up channel')
       supabase.removeChannel(channel)
       setRoomChannel(null)
+      setChannelReady(false)
     }
-  }, [roomId, supabase, loadRoom])
+  }, [roomId, supabase]) // Removed loadRoom from deps to prevent recreation
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -186,12 +200,16 @@ export default function RoomPage() {
     setShowCountdown(true)
 
     // Broadcast game_start to all other players in the room
+    console.log('[Realtime] Broadcasting game_start, channel ready:', channelReady, 'channel:', !!roomChannel)
     if (roomChannel) {
-      roomChannel.send({
+      const sendResult = await roomChannel.send({
         type: 'broadcast',
         event: 'game_start',
-        payload: {},
+        payload: { startedAt: Date.now() },
       })
+      console.log('[Realtime] Broadcast send result:', sendResult)
+    } else {
+      console.warn('[Realtime] Channel not ready, cannot broadcast')
     }
 
     setStartingGame(false)

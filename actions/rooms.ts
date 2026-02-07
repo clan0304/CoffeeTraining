@@ -115,12 +115,16 @@ export async function inviteUserByUsername(
     return { error: 'Only the host can invite users' }
   }
 
-  // Find the user by username
-  const { data: profile } = await supabase
+  // Find the user by username (case-insensitive)
+  const { data: profile, error: profileError } = await supabase
     .from('user_profiles')
     .select('user_id, username')
-    .eq('username', username)
+    .ilike('username', username)
     .single<{ user_id: string; username: string }>()
+
+  if (profileError) {
+    console.error('Error finding user:', profileError)
+  }
 
   if (!profile) {
     return { error: 'User not found' }
@@ -775,53 +779,59 @@ export async function generateTriangulationSet(
     return { error: 'Failed to create set' }
   }
 
-  // Generate 8 rows with balanced coffee pairings
-  // Create unique unordered pairs (A-B is same as B-A)
-  const uniquePairs: Array<{ coffee1: RoomCoffee; coffee2: RoomCoffee }> = []
-  for (let i = 0; i < coffees.length; i++) {
-    for (let j = i + 1; j < coffees.length; j++) {
-      uniquePairs.push({ coffee1: coffees[i], coffee2: coffees[j] })
-    }
-  }
+  // Generate 8 rows with BALANCED coffee usage
+  // Total cups = 8 rows × 3 cups = 24 cups
+  // Each coffee should appear roughly equally (e.g., 5 coffees → 5,5,5,5,4)
 
-  // Shuffle unique pairs
-  const shuffledUniquePairs = uniquePairs.sort(() => Math.random() - 0.5)
+  // Track usage count for each coffee
+  const usageCount = new Map<string, number>()
+  coffees.forEach(c => usageCount.set(c.id, 0))
 
-  // Build rows from unique pairs, repeating only if necessary
+  // Track used pairs to avoid duplicates like (A,B) and (B,A)
+  const usedPairs = new Set<string>()
+  const makePairKey = (c1: string, c2: string) => [c1, c2].sort().join('-')
+
   const selectedRows: Array<{ pair: RoomCoffee; odd: RoomCoffee; oddPosition: number }> = []
 
   for (let row = 0; row < 8; row++) {
-    // Get pair from shuffled list, cycling if we have fewer than 8 unique pairs
-    const pairIndex = row % shuffledUniquePairs.length
-    const { coffee1, coffee2 } = shuffledUniquePairs[pairIndex]
+    // Sort coffees by usage (least used first)
+    const sortedByUsage = [...coffees].sort((a, b) => {
+      const usageA = usageCount.get(a.id) || 0
+      const usageB = usageCount.get(b.id) || 0
+      if (usageA !== usageB) return usageA - usageB
+      return Math.random() - 0.5 // Randomize if equal
+    })
 
-    // Randomly decide which coffee is the pair and which is the odd
-    // But only randomize on first use of each pair to avoid duplicates like A-B and B-A
-    let pair: RoomCoffee
-    let odd: RoomCoffee
+    // Find the best pair (pair coffee appears 2x, odd coffee appears 1x)
+    let pair: RoomCoffee = sortedByUsage[0]
+    let odd: RoomCoffee = sortedByUsage[1]
+    let foundUnusedPair = false
 
-    if (row < shuffledUniquePairs.length) {
-      // First time using this pair - randomly assign
-      if (Math.random() < 0.5) {
-        pair = coffee1
-        odd = coffee2
-      } else {
-        pair = coffee2
-        odd = coffee1
-      }
-    } else {
-      // Repeating pairs - use opposite assignment from first use
-      const firstUseIndex = pairIndex
-      const firstRow = selectedRows[firstUseIndex]
-      // Swap the roles
-      if (firstRow.pair.id === coffee1.id) {
-        pair = coffee2
-        odd = coffee1
-      } else {
-        pair = coffee1
-        odd = coffee2
+    // Try to find an unused pair combination
+    outerLoop:
+    for (let i = 0; i < sortedByUsage.length; i++) {
+      for (let j = 0; j < sortedByUsage.length; j++) {
+        if (i === j) continue
+
+        const pairCandidate = sortedByUsage[i]
+        const oddCandidate = sortedByUsage[j]
+        const pairKey = makePairKey(pairCandidate.id, oddCandidate.id)
+
+        if (!usedPairs.has(pairKey)) {
+          pair = pairCandidate
+          odd = oddCandidate
+          usedPairs.add(pairKey)
+          foundUnusedPair = true
+          break outerLoop
+        }
       }
     }
+
+    // If all pairs used, pair/odd already set to least used coffees
+
+    // Update usage counts (pair appears 2x, odd appears 1x)
+    usageCount.set(pair.id, (usageCount.get(pair.id) || 0) + 2)
+    usageCount.set(odd.id, (usageCount.get(odd.id) || 0) + 1)
 
     // Random odd position (1, 2, or 3)
     const oddPosition = Math.floor(Math.random() * 3) + 1
@@ -832,6 +842,9 @@ export async function generateTriangulationSet(
       oddPosition,
     })
   }
+
+  // Log distribution for debugging
+  console.log('Coffee usage distribution:', Object.fromEntries(usageCount))
 
   // Insert rows
   const rowInserts = selectedRows.map((row, index) => ({
