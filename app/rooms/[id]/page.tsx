@@ -187,8 +187,20 @@ export default function RoomPage() {
       setInviteSuccess(`Invitation sent to @${inviteUsername}`)
       setInviteUsername('')
       loadRoom()
-      // Broadcast update to all players
+      // Broadcast update to all players in the room
       roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
+      // Notify the invited user so their invitation list updates in real time
+      if (result.invitation) {
+        const invitedUserId = result.invitation.invited_user_id
+        const notifyChannel = supabase.channel(`user_invitations_${invitedUserId}`)
+        notifyChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            notifyChannel.send({ type: 'broadcast', event: 'new_invitation', payload: {} })
+            // Clean up after sending
+            setTimeout(() => supabase.removeChannel(notifyChannel), 1000)
+          }
+        })
+      }
     }
 
     setInviteLoading(false)

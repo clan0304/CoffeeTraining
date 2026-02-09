@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
-import { createClient } from '@supabase/supabase-js'
+import { useSupabaseClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -18,6 +18,7 @@ type InvitationWithDetails = RoomInvitation & {
 export function InvitationsList() {
   const router = useRouter()
   const { user } = useUser()
+  const supabase = useSupabaseClient()
   const [invitations, setInvitations] = useState<InvitationWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   const [respondingId, setRespondingId] = useState<string | null>(null)
@@ -34,35 +35,21 @@ export function InvitationsList() {
     loadInvitations()
   }, [loadInvitations])
 
-  // Real-time subscription for new invitations
+  // Real-time subscription for new invitations via broadcast
   useEffect(() => {
-    if (!user?.id) return
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    if (!user?.id || !supabase) return
 
     const channel = supabase
       .channel(`user_invitations_${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_invitations',
-          filter: `invited_user_id=eq.${user.id}`,
-        },
-        () => {
-          loadInvitations()
-        }
-      )
+      .on('broadcast', { event: 'new_invitation' }, () => {
+        loadInvitations()
+      })
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user?.id, loadInvitations])
+  }, [user?.id, supabase, loadInvitations])
 
   const handleRespond = async (invitationId: string, accept: boolean) => {
     setRespondingId(invitationId)
