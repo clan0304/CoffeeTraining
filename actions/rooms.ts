@@ -1203,7 +1203,7 @@ export async function startGame(
 
 export async function beginPlaying(
   roomId: string
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<{ success?: boolean; error?: string; timerStartedAt?: string }> {
   const { userId } = await auth()
 
   if (!userId) {
@@ -1235,12 +1235,15 @@ export async function beginPlaying(
     return { error: 'Game cannot be started from current state' }
   }
 
+  // Capture timestamp before writing so we can return the exact value
+  const timerStartedAt = new Date().toISOString()
+
   // Start the actual game timer
   const { error } = await supabase
     .from('rooms')
     .update({
       status: 'playing',
-      timer_started_at: new Date().toISOString(),
+      timer_started_at: timerStartedAt,
       updated_at: new Date().toISOString(),
     })
     .eq('id', roomId)
@@ -1250,7 +1253,7 @@ export async function beginPlaying(
     return { error: 'Failed to start game' }
   }
 
-  return { success: true }
+  return { success: true, timerStartedAt }
 }
 
 // =============================================

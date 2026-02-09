@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TriangulationRow } from './triangulation-row'
 
@@ -21,6 +22,45 @@ export function AnswerSheet({
   mode = 'guess',
 }: AnswerSheetProps) {
   const rows = [0, 1, 2, 3, 4, 5, 6, 7]
+  const [expandedRow, setExpandedRow] = useState<number | null>(null)
+  const [maybes, setMaybes] = useState<Set<number>[]>(
+    () => Array.from({ length: 8 }, () => new Set())
+  )
+
+  const handleSelect = useCallback((rowIndex: number, position: number) => {
+    // Maybe cycle only applies in guess mode
+    if (mode !== 'guess') {
+      onSelect(rowIndex, position)
+      return
+    }
+
+    const isCurrentAnswer = answers[rowIndex] === position
+    const isMaybe = maybes[rowIndex].has(position)
+
+    if (isCurrentAnswer) {
+      // Answer → Maybe (yellow): deselect answer, add to maybes
+      onSelect(rowIndex, position) // toggles off in parent
+      setMaybes((prev) => {
+        const next = prev.map((s, i) => (i === rowIndex ? new Set(s) : s))
+        next[rowIndex].add(position)
+        return next
+      })
+    } else if (isMaybe) {
+      // Maybe → None: remove maybe mark
+      setMaybes((prev) => {
+        const next = prev.map((s, i) => (i === rowIndex ? new Set(s) : s))
+        next[rowIndex].delete(position)
+        return next
+      })
+    } else {
+      // None → Answer: set as answer
+      onSelect(rowIndex, position)
+    }
+  }, [onSelect, answers, maybes, mode])
+
+  const handleToggleExpand = useCallback((rowIndex: number) => {
+    setExpandedRow((prev) => (prev === rowIndex ? null : rowIndex))
+  }, [])
 
   // Calculate score from revealed answers
   const calculateScore = (): number => {
@@ -85,6 +125,11 @@ export function AnswerSheet({
             Check each cup and tap which one was the odd one
           </p>
         )}
+        {mode === 'guess' && answeredCount === 0 && (
+          <p className="text-sm text-muted-foreground mt-1">
+            Tap a row number to reveal cups
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-1">
         {/* Header */}
@@ -105,10 +150,14 @@ export function AnswerSheet({
             rowNumber={rowIndex + 1}
             selectedPosition={answers[rowIndex]}
             correctPosition={correctAnswers?.[rowIndex]}
-            onSelect={(position) => onSelect(rowIndex, position)}
+            onSelect={(position) => handleSelect(rowIndex, position)}
             disabled={disabled}
             showResult={showResults}
             isInputMode={mode === 'input'}
+            isExpanded={mode === 'guess' ? expandedRow === rowIndex : true}
+            onToggleExpand={() => handleToggleExpand(rowIndex)}
+            isGuessMode={mode === 'guess'}
+            maybePositions={maybes[rowIndex]}
           />
         ))}
 

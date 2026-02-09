@@ -12,6 +12,7 @@ interface TimerProps {
   onReset?: () => void
   startTime?: string  // ISO timestamp when timer was started (for room sync)
   autoStart?: boolean // Auto-start on mount
+  hideControls?: boolean // Hide Start/Pause/Reset buttons (for multiplayer)
 }
 
 export function Timer({
@@ -22,6 +23,7 @@ export function Timer({
   onReset,
   startTime,
   autoStart = false,
+  hideControls = false,
 }: TimerProps) {
   // Calculate initial seconds based on startTime if provided
   const calculateRemainingSeconds = useCallback(() => {
@@ -46,6 +48,18 @@ export function Timer({
   const formatTime = (mins: number, secs: number) => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
+
+  // Auto-start when startTime arrives (e.g., from broadcast after mount)
+  useEffect(() => {
+    if (startTime && !isRunning) {
+      const remaining = calculateRemainingSeconds()
+      setTotalSeconds(remaining)
+      if (remaining > 0) {
+        setIsRunning(true)
+        setHasStarted(true)
+      }
+    }
+  }, [startTime]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer countdown
   useEffect(() => {
@@ -117,32 +131,34 @@ export function Timer({
           </div>
 
           {/* Controls */}
-          <div className="flex justify-center gap-2">
-            {!isRunning ? (
+          {!hideControls && (
+            <div className="flex justify-center gap-2">
+              {!isRunning ? (
+                <Button
+                  onClick={handleStart}
+                  disabled={totalSeconds === 0}
+                  className="w-24"
+                >
+                  {hasStarted ? 'Resume' : 'Start'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handlePause}
+                  variant="secondary"
+                  className="w-24"
+                >
+                  Pause
+                </Button>
+              )}
               <Button
-                onClick={handleStart}
-                disabled={totalSeconds === 0}
+                onClick={handleReset}
+                variant="outline"
                 className="w-24"
               >
-                {hasStarted ? 'Resume' : 'Start'}
+                Reset
               </Button>
-            ) : (
-              <Button
-                onClick={handlePause}
-                variant="secondary"
-                className="w-24"
-              >
-                Pause
-              </Button>
-            )}
-            <Button
-              onClick={handleReset}
-              variant="outline"
-              className="w-24"
-            >
-              Reset
-            </Button>
-          </div>
+            </div>
+          )}
 
           {/* Time up message */}
           {totalSeconds === 0 && (

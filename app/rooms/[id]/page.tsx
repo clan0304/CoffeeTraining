@@ -113,6 +113,20 @@ export default function RoomPage() {
       setShowCountdown(true)
     })
 
+    // Listen for game_playing event (host broadcasts exact timer start)
+    channel.on('broadcast', { event: 'game_playing' }, (payload) => {
+      console.log('[Realtime] Received game_playing broadcast:', payload)
+      const { timerStartedAt } = payload.payload as { timerStartedAt: string }
+      // End countdown if still showing
+      setShowCountdown(false)
+      // Reset game state
+      setAnswers(Array(8).fill(null))
+      setCorrectAnswers(Array(8).fill(null))
+      setGamePhase('playing')
+      // Update room state with the exact server timestamp
+      setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
+    })
+
     // Listen for room data changes via broadcast
     channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
       console.log('[Realtime] Received room_updated broadcast:', payload)
@@ -216,25 +230,37 @@ export default function RoomPage() {
   }
 
   const handleCountdownComplete = async () => {
-    setShowCountdown(false)
-
-    // Reset game state
-    setAnswers(Array(8).fill(null))
-    setCorrectAnswers(Array(8).fill(null))
-    setGamePhase('playing')
-
-    // Only host should call beginPlaying to set status to 'playing'
     if (user?.id === room?.host_id) {
+      // Host: write to DB, get exact timestamp, broadcast to all players
       const result = await beginPlaying(roomId)
       if (result.error) {
         console.error('Begin playing error:', result.error)
+        return
       }
-      // Broadcast that game is now playing
-      roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
-    }
 
-    // Refresh room data
-    loadRoom()
+      const timerStartedAt = result.timerStartedAt!
+
+      // Update own state
+      setShowCountdown(false)
+      setAnswers(Array(8).fill(null))
+      setCorrectAnswers(Array(8).fill(null))
+      setGamePhase('playing')
+      setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
+
+      // Broadcast the exact timestamp to all other players
+      roomChannel?.send({
+        type: 'broadcast',
+        event: 'game_playing',
+        payload: { timerStartedAt },
+      })
+    } else {
+      // Non-host: just reset local countdown state.
+      // The game_playing broadcast listener handles the rest.
+      setShowCountdown(false)
+      setAnswers(Array(8).fill(null))
+      setCorrectAnswers(Array(8).fill(null))
+      setGamePhase('playing')
+    }
   }
 
   const handleTimeUp = () => {
@@ -384,6 +410,7 @@ export default function RoomPage() {
             initialMinutes={room.timer_minutes}
             onTimeUp={handleTimeUp}
             startTime={room.timer_started_at || undefined}
+            hideControls
           />
 
           <AnswerSheet
