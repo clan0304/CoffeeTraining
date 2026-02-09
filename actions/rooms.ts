@@ -752,17 +752,29 @@ export async function generateTriangulationSet(
     return { error: 'Need at least 2 coffees to generate a set' }
   }
 
-  // Get current set count
+  // Get existing sets with their rows to avoid duplicate pair/odd combos across sets
   const { data: existingSets } = await supabase
     .from('room_sets')
-    .select('set_number')
+    .select('set_number, room_set_rows(pair_coffee_id, odd_coffee_id)')
     .eq('room_id', roomId)
     .order('set_number', { ascending: false })
-    .limit(1)
 
   const nextSetNumber = existingSets && existingSets.length > 0
     ? existingSets[0].set_number + 1
     : 1
+
+  // Collect directed pair/odd combos already used in previous sets
+  const previouslyUsedCombos = new Set<string>()
+  if (existingSets) {
+    for (const s of existingSets) {
+      const rows = (s as Record<string, unknown>).room_set_rows as Array<{ pair_coffee_id: string; odd_coffee_id: string }> | undefined
+      if (rows) {
+        for (const r of rows) {
+          previouslyUsedCombos.add(`${r.pair_coffee_id}:${r.odd_coffee_id}`)
+        }
+      }
+    }
+  }
 
   // Create the set
   const { data: newSet, error: setError } = await supabase
@@ -787,9 +799,11 @@ export async function generateTriangulationSet(
   const usageCount = new Map<string, number>()
   coffees.forEach(c => usageCount.set(c.id, 0))
 
-  // Track used pairs to avoid duplicates like (A,B) and (B,A)
+  // Track used pairs within this set to avoid duplicates like (A,B) and (B,A)
   const usedPairs = new Set<string>()
   const makePairKey = (c1: string, c2: string) => [c1, c2].sort().join('-')
+  // Directed combo key: pair→odd (different from odd→pair)
+  const makeComboKey = (pairId: string, oddId: string) => `${pairId}:${oddId}`
 
   const selectedRows: Array<{ pair: RoomCoffee; odd: RoomCoffee; oddPosition: number }> = []
 
@@ -803,11 +817,14 @@ export async function generateTriangulationSet(
     })
 
     // Find the best pair (pair coffee appears 2x, odd coffee appears 1x)
+    // Priority: 1) totally new — neither A→B nor B→A used in previous sets
+    //           2) similar — reverse (B→A) exists but exact (A→B) doesn't
+    //           3) exact duplicate — last resort fallback
     let pair: RoomCoffee = sortedByUsage[0]
     let odd: RoomCoffee = sortedByUsage[1]
-    let foundUnusedPair = false
+    let similarFallback: { pair: RoomCoffee; odd: RoomCoffee } | null = null
+    let exactFallback: { pair: RoomCoffee; odd: RoomCoffee } | null = null
 
-    // Try to find an unused pair combination
     outerLoop:
     for (let i = 0; i < sortedByUsage.length; i++) {
       for (let j = 0; j < sortedByUsage.length; j++) {
@@ -818,16 +835,39 @@ export async function generateTriangulationSet(
         const pairKey = makePairKey(pairCandidate.id, oddCandidate.id)
 
         if (!usedPairs.has(pairKey)) {
-          pair = pairCandidate
-          odd = oddCandidate
-          usedPairs.add(pairKey)
-          foundUnusedPair = true
-          break outerLoop
+          const exactKey = makeComboKey(pairCandidate.id, oddCandidate.id)
+          const reverseKey = makeComboKey(oddCandidate.id, pairCandidate.id)
+          const hasExact = previouslyUsedCombos.has(exactKey)
+          const hasReverse = previouslyUsedCombos.has(reverseKey)
+
+          if (!hasExact && !hasReverse) {
+            // Best: totally new coffee pair
+            pair = pairCandidate
+            odd = oddCandidate
+            usedPairs.add(pairKey)
+            similarFallback = null
+            exactFallback = null
+            break outerLoop
+          } else if (!hasExact && hasReverse && !similarFallback) {
+            // Similar: reverse was used, but this exact direction is new
+            similarFallback = { pair: pairCandidate, odd: oddCandidate }
+          } else if (hasExact && !exactFallback) {
+            // Exact duplicate — last resort
+            exactFallback = { pair: pairCandidate, odd: oddCandidate }
+          }
         }
       }
     }
 
-    // If all pairs used, pair/odd already set to least used coffees
+    if (similarFallback) {
+      pair = similarFallback.pair
+      odd = similarFallback.odd
+      usedPairs.add(makePairKey(pair.id, odd.id))
+    } else if (exactFallback) {
+      pair = exactFallback.pair
+      odd = exactFallback.odd
+      usedPairs.add(makePairKey(pair.id, odd.id))
+    }
 
     // Update usage counts (pair appears 2x, odd appears 1x)
     usageCount.set(pair.id, (usageCount.get(pair.id) || 0) + 2)

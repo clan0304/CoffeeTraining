@@ -98,7 +98,7 @@ export default function RoomPage() {
 
   // Real-time subscription using Broadcast (doesn't require RLS)
   useEffect(() => {
-    if (!roomId || !supabase) return
+    if (!roomId || !supabase || !session) return
 
     console.log('[Realtime] Setting up channel for room:', roomId)
 
