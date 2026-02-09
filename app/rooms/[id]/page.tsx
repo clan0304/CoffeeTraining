@@ -64,6 +64,8 @@ export default function RoomPage() {
 
   // Game state
   const [showCountdown, setShowCountdown] = useState(false)
+  const [countdownFrom, setCountdownFrom] = useState(5)
+  const [waitingForTimer, setWaitingForTimer] = useState(false)
   const [gamePhase, setGamePhase] = useState<'playing' | 'inputting' | 'finished'>('playing')
   const [answers, setAnswers] = useState<(number | null)[]>(Array(8).fill(null))
   const [correctAnswers, setCorrectAnswers] = useState<(number | null)[]>(Array(8).fill(null))
@@ -110,15 +112,30 @@ export default function RoomPage() {
     // Listen for game events via broadcast (instant, no RLS needed)
     channel.on('broadcast', { event: 'game_start' }, (payload) => {
       console.log('[Realtime] Received game_start broadcast:', payload)
-      setShowCountdown(true)
+      const { startedAt } = payload.payload as { startedAt: number }
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000)
+      const remaining = 5 - elapsedSeconds
+
+      if (remaining > 0) {
+        // Countdown still in progress — join at the synced number
+        setCountdownFrom(remaining)
+        setShowCountdown(true)
+      } else {
+        // Countdown already finished — skip to waiting for timer
+        setWaitingForTimer(true)
+        setAnswers(Array(8).fill(null))
+        setCorrectAnswers(Array(8).fill(null))
+        setGamePhase('playing')
+      }
     })
 
     // Listen for game_playing event (host broadcasts exact timer start)
     channel.on('broadcast', { event: 'game_playing' }, (payload) => {
       console.log('[Realtime] Received game_playing broadcast:', payload)
       const { timerStartedAt } = payload.payload as { timerStartedAt: string }
-      // End countdown if still showing
+      // End countdown / waiting screen
       setShowCountdown(false)
+      setWaitingForTimer(false)
       // Reset game state
       setAnswers(Array(8).fill(null))
       setCorrectAnswers(Array(8).fill(null))
@@ -211,6 +228,8 @@ export default function RoomPage() {
     }
 
     // Show countdown immediately for host
+    const countdownStartedAt = Date.now()
+    setCountdownFrom(5)
     setShowCountdown(true)
 
     // Broadcast game_start to all other players in the room
@@ -219,7 +238,7 @@ export default function RoomPage() {
       const sendResult = await roomChannel.send({
         type: 'broadcast',
         event: 'game_start',
-        payload: { startedAt: Date.now() },
+        payload: { startedAt: countdownStartedAt },
       })
       console.log('[Realtime] Broadcast send result:', sendResult)
     } else {
@@ -254,9 +273,10 @@ export default function RoomPage() {
         payload: { timerStartedAt },
       })
     } else {
-      // Non-host: just reset local countdown state.
-      // The game_playing broadcast listener handles the rest.
+      // Non-host: hide countdown but wait for game_playing broadcast
+      // to get the exact timer timestamp before showing the playing view.
       setShowCountdown(false)
+      setWaitingForTimer(true)
       setAnswers(Array(8).fill(null))
       setCorrectAnswers(Array(8).fill(null))
       setGamePhase('playing')
@@ -389,7 +409,21 @@ export default function RoomPage() {
 
   // Countdown view - shown when host starts the game
   if (showCountdown) {
-    return <Countdown from={5} onComplete={handleCountdownComplete} />
+    return <Countdown from={countdownFrom} onComplete={handleCountdownComplete} />
+  }
+
+  // Waiting for host to set the timer (non-host only)
+  if (waitingForTimer) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="text-6xl font-bold text-primary animate-pulse">
+            GO!
+          </div>
+          <p className="text-lg text-muted-foreground">Starting...</p>
+        </div>
+      </div>
+    )
   }
 
   // Playing view - tasting and marking guesses
