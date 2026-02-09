@@ -70,7 +70,7 @@ export function OnboardingForm() {
       // Upload photo if provided
       let photoUrl: string | null = null
       if (photo && session) {
-        const token = await session.getToken({ template: 'supabase' })
+        const token = await session.getToken()
         if (token) {
           const uploadResult = await uploadProfilePhoto(photo, token)
           if (uploadResult.error) {

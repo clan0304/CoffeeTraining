@@ -39,12 +39,17 @@ export function InvitationsList() {
   useEffect(() => {
     if (!user?.id || !supabase) return
 
+    console.log('[Invitations] Setting up broadcast channel for user:', user.id)
+
     const channel = supabase
       .channel(`user_invitations_${user.id}`)
       .on('broadcast', { event: 'new_invitation' }, () => {
+        console.log('[Invitations] Received new_invitation broadcast')
         loadInvitations()
       })
-      .subscribe()
+      .subscribe((status, err) => {
+        console.log('[Invitations] Channel status:', status, err ? `Error: ${err.message}` : '')
+      })
 
     return () => {
       supabase.removeChannel(channel)

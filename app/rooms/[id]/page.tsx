@@ -154,12 +154,16 @@ export default function RoomPage() {
       }
     })
 
-    channel.subscribe((status) => {
-      console.log('[Realtime] Channel status:', status)
+    channel.subscribe((status, err) => {
+      console.log('[Realtime] Channel status:', status, err ? `Error: ${err.message}` : '')
       if (status === 'SUBSCRIBED') {
         console.log('[Realtime] Channel subscribed successfully!')
         setRoomChannel(channel)
         setChannelReady(true)
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error('[Realtime] Channel error:', err)
+      } else if (status === 'TIMED_OUT') {
+        console.error('[Realtime] Channel timed out')
       }
     })
 

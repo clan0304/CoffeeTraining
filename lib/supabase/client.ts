@@ -2,75 +2,31 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { useSession } from '@clerk/nextjs'
-import { useEffect, useRef } from 'react'
-
-// Singleton client to ensure stable instance across renders
-let globalClient: SupabaseClient | null = null
-let tokenGetterRef: (() => Promise<string | null>) | null = null
-
-function getOrCreateClient(): SupabaseClient {
-  if (!globalClient) {
-    globalClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          fetch: async (url, options = {}) => {
-            const headers = new Headers(options.headers)
-            if (tokenGetterRef) {
-              const token = await tokenGetterRef()
-              if (token) {
-                headers.set('Authorization', `Bearer ${token}`)
-              }
-            }
-            return fetch(url, { ...options, headers })
-          },
-        },
-      }
-    )
-  }
-  return globalClient
-}
+import { useEffect, useRef, useMemo } from 'react'
 
 export function useSupabaseClient(): SupabaseClient {
   const { session } = useSession()
-  const supabase = getOrCreateClient()
-  const hasSetAuth = useRef(false)
+  const sessionRef = useRef(session)
 
-  // Update token getter when session changes
+  // Keep ref in sync so the accessToken callback always uses the latest session
   useEffect(() => {
-    if (session) {
-      tokenGetterRef = () => session.getToken({ template: 'supabase' })
+    sessionRef.current = session
+  }, [session])
 
-      // Set realtime auth token
-      session.getToken({ template: 'supabase' }).then((token) => {
-        if (token && !hasSetAuth.current) {
-          supabase.realtime.setAuth(token)
-          hasSetAuth.current = true
-        }
-      })
-    }
-  }, [session, supabase])
+  const supabase = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        accessToken: async () => {
+          const token = await sessionRef.current?.getToken()
+          console.log('[Supabase] accessToken called, got:', token ? `${token.substring(0, 20)}...` : 'null')
+          return token ?? null
+        },
+      }
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Create once — session updates flow through the ref
 
   return supabase
-}
-
-// For use outside of React components (e.g., in utility functions)
-export function createSupabaseClient(getToken: () => Promise<string | null>) {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      global: {
-        fetch: async (url, options = {}) => {
-          const clerkToken = await getToken()
-          const headers = new Headers(options.headers)
-          if (clerkToken) {
-            headers.set('Authorization', `Bearer ${clerkToken}`)
-          }
-          return fetch(url, { ...options, headers })
-        },
-      },
-    }
-  )
 }
