@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { useSession } from '@clerk/nextjs'
 import { useEffect, useRef, useMemo } from 'react'
 
+// Authenticated client for DB operations (with Clerk JWT)
 export function useSupabaseClient(): SupabaseClient {
   const { session } = useSession()
   const sessionRef = useRef(session)
@@ -20,7 +21,6 @@ export function useSupabaseClient(): SupabaseClient {
       {
         accessToken: async () => {
           const token = await sessionRef.current?.getToken()
-          console.log('[Supabase] accessToken called, got:', token ? `${token.substring(0, 20)}...` : 'null')
           return token ?? null
         },
       }
@@ -29,4 +29,17 @@ export function useSupabaseClient(): SupabaseClient {
   }, []) // Create once — session updates flow through the ref
 
   return supabase
+}
+
+// Unauthenticated client for Broadcast/Presence only (no JWT needed)
+let realtimeInstance: SupabaseClient | null = null
+
+export function getRealtimeClient(): SupabaseClient {
+  if (!realtimeInstance) {
+    realtimeInstance = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+  }
+  return realtimeInstance
 }

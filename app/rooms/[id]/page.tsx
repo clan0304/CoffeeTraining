@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useUser, useSession } from '@clerk/nextjs'
-import { useSupabaseClient } from '@/lib/supabase/client'
+import { useUser } from '@clerk/nextjs'
+import { getRealtimeClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -39,8 +39,7 @@ export default function RoomPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
-  const { session } = useSession()
-  const supabase = useSupabaseClient()
+  const realtime = useMemo(() => getRealtimeClient(), [])
   const roomId = params.id as string
 
   const [room, setRoom] = useState<RoomWithDetails | null>(null)
@@ -93,66 +92,57 @@ export default function RoomPage() {
   }, [room?.status, showCountdown])
 
   // Store channel ref for broadcasting
-  const [roomChannel, setRoomChannel] = useState<ReturnType<typeof supabase.channel> | null>(null)
+  const [roomChannel, setRoomChannel] = useState<ReturnType<typeof realtime.channel> | null>(null)
   const [channelReady, setChannelReady] = useState(false)
 
-  // Real-time subscription using Broadcast (doesn't require RLS)
+  // Real-time subscription using Broadcast (anon client, no auth needed)
   useEffect(() => {
-    if (!roomId || !supabase || !session) return
+    if (!roomId) return
 
     console.log('[Realtime] Setting up channel for room:', roomId)
 
-    // Create a single channel for the room with broadcast capability
-    const channel = supabase.channel(`room_sync_${roomId}`, {
+    const channel = realtime.channel(`room_sync_${roomId}`, {
       config: {
-        broadcast: { self: true }, // Receive own broadcasts too
+        broadcast: { self: true },
       },
     })
 
-    // Listen for game events via broadcast (instant, no RLS needed)
-    channel.on('broadcast', { event: 'game_start' }, (payload) => {
-      console.log('[Realtime] Received game_start broadcast:', payload)
-      const { startedAt } = payload.payload as { startedAt: number }
-      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000)
-      const remaining = 5 - elapsedSeconds
+      // Listen for game events via broadcast (instant, no RLS needed)
+      channel.on('broadcast', { event: 'game_start' }, (payload) => {
+        console.log('[Realtime] Received game_start broadcast:', payload)
+        const { startedAt } = payload.payload as { startedAt: number }
+        const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000)
+        const remaining = 5 - elapsedSeconds
 
-      if (remaining > 0) {
-        // Countdown still in progress — join at the synced number
-        setCountdownFrom(remaining)
-        setShowCountdown(true)
-      } else {
-        // Countdown already finished — skip to waiting for timer
-        setWaitingForTimer(true)
+        if (remaining > 0) {
+          setCountdownFrom(remaining)
+          setShowCountdown(true)
+        } else {
+          setWaitingForTimer(true)
+          setAnswers(Array(8).fill(null))
+          setCorrectAnswers(Array(8).fill(null))
+          setGamePhase('playing')
+        }
+      })
+
+      channel.on('broadcast', { event: 'game_playing' }, (payload) => {
+        console.log('[Realtime] Received game_playing broadcast:', payload)
+        const { timerStartedAt } = payload.payload as { timerStartedAt: string }
+        setShowCountdown(false)
+        setWaitingForTimer(false)
         setAnswers(Array(8).fill(null))
         setCorrectAnswers(Array(8).fill(null))
         setGamePhase('playing')
-      }
-    })
+        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
+      })
 
-    // Listen for game_playing event (host broadcasts exact timer start)
-    channel.on('broadcast', { event: 'game_playing' }, (payload) => {
-      console.log('[Realtime] Received game_playing broadcast:', payload)
-      const { timerStartedAt } = payload.payload as { timerStartedAt: string }
-      // End countdown / waiting screen
-      setShowCountdown(false)
-      setWaitingForTimer(false)
-      // Reset game state
-      setAnswers(Array(8).fill(null))
-      setCorrectAnswers(Array(8).fill(null))
-      setGamePhase('playing')
-      // Update room state with the exact server timestamp
-      setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
-    })
-
-    // Listen for room data changes via broadcast
-    channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
-      console.log('[Realtime] Received room_updated broadcast:', payload)
-      // Fetch fresh room data
-      const result = await getRoomDetails(roomId)
-      if (!result.error && result.room) {
-        setRoom(result.room)
-      }
-    })
+      channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
+        console.log('[Realtime] Received room_updated broadcast:', payload)
+        const result = await getRoomDetails(roomId)
+        if (!result.error && result.room) {
+          setRoom(result.room)
+        }
+      })
 
     channel.subscribe((status, err) => {
       console.log('[Realtime] Channel status:', status, err ? `Error: ${err.message}` : '')
@@ -169,11 +159,11 @@ export default function RoomPage() {
 
     return () => {
       console.log('[Realtime] Cleaning up channel')
-      supabase.removeChannel(channel)
+      realtime.removeChannel(channel)
       setRoomChannel(null)
       setChannelReady(false)
     }
-  }, [roomId, supabase]) // Removed loadRoom from deps to prevent recreation
+  }, [roomId, realtime])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -196,12 +186,12 @@ export default function RoomPage() {
       // Notify the invited user so their invitation list updates in real time
       if (result.invitation) {
         const invitedUserId = result.invitation.invited_user_id
-        const notifyChannel = supabase.channel(`user_invitations_${invitedUserId}`)
+        const notifyChannel = realtime.channel(`user_invitations_${invitedUserId}`)
         notifyChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             notifyChannel.send({ type: 'broadcast', event: 'new_invitation', payload: {} })
             // Clean up after sending
-            setTimeout(() => supabase.removeChannel(notifyChannel), 1000)
+            setTimeout(() => realtime.removeChannel(notifyChannel), 1000)
           }
         })
       }

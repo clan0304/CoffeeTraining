@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
-import { useSupabaseClient } from '@/lib/supabase/client'
+import { getRealtimeClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -18,7 +18,7 @@ type InvitationWithDetails = RoomInvitation & {
 export function InvitationsList() {
   const router = useRouter()
   const { user } = useUser()
-  const supabase = useSupabaseClient()
+  const realtime = useMemo(() => getRealtimeClient(), [])
   const [invitations, setInvitations] = useState<InvitationWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   const [respondingId, setRespondingId] = useState<string | null>(null)
@@ -37,11 +37,11 @@ export function InvitationsList() {
 
   // Real-time subscription for new invitations via broadcast
   useEffect(() => {
-    if (!user?.id || !supabase) return
+    if (!user?.id) return
 
     console.log('[Invitations] Setting up broadcast channel for user:', user.id)
 
-    const channel = supabase
+    const channel = realtime
       .channel(`user_invitations_${user.id}`)
       .on('broadcast', { event: 'new_invitation' }, () => {
         console.log('[Invitations] Received new_invitation broadcast')
@@ -52,9 +52,9 @@ export function InvitationsList() {
       })
 
     return () => {
-      supabase.removeChannel(channel)
+      realtime.removeChannel(channel)
     }
-  }, [user?.id, supabase, loadInvitations])
+  }, [user?.id, realtime, loadInvitations])
 
   const handleRespond = async (invitationId: string, accept: boolean) => {
     setRespondingId(invitationId)
