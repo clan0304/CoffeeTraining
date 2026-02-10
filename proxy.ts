@@ -40,7 +40,7 @@ export default clerkMiddleware(async (auth, req) => {
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('onboarding_completed')
-    .eq('user_id', userId)
+    .eq('clerk_id', userId)
     .single()
 
   const onboardingComplete = profile?.onboarding_completed === true

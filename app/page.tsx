@@ -5,7 +5,7 @@ import { SignOutButton } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createAdminSupabaseClient } from '@/lib/supabase/admin'
 import { InvitationsList } from '@/components/rooms/invitations-list'
 import type { UserProfile, Room, RoomInvitation, PublicProfile } from '@/types/database'
 
@@ -57,12 +57,12 @@ export default async function HomePage() {
   }
 
   // Authenticated view - check onboarding status from Supabase
-  const supabase = await createServerSupabaseClient()
+  const supabase = createAdminSupabaseClient()
 
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('*')
-    .eq('user_id', userId)
+    .eq('clerk_id', userId)
     .single<UserProfile>()
 
   // Redirect to onboarding if not completed

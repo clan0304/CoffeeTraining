@@ -8,7 +8,7 @@
 
 CREATE TABLE public.user_profiles (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id TEXT UNIQUE NOT NULL,  -- Clerk user ID
+  clerk_id TEXT UNIQUE NOT NULL,  -- Clerk user ID (for auth lookups)
   email TEXT NOT NULL,
   username TEXT UNIQUE,
   bio TEXT,
@@ -19,7 +19,7 @@ CREATE TABLE public.user_profiles (
 );
 
 -- Indexes for faster queries
-CREATE INDEX idx_user_profiles_user_id ON public.user_profiles(user_id);
+CREATE INDEX idx_user_profiles_clerk_id ON public.user_profiles(clerk_id);
 CREATE INDEX idx_user_profiles_username ON public.user_profiles(username);
 
 -- Enable Row Level Security

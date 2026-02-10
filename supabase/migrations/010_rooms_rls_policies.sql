@@ -3,6 +3,20 @@
 -- Description: Row Level Security for all room-related tables
 
 -- =============================================
+-- HELPER FUNCTION: Resolve Clerk JWT sub to user_profiles UUID
+-- =============================================
+
+CREATE OR REPLACE FUNCTION auth_profile_id()
+RETURNS UUID AS $$
+BEGIN
+  RETURN (
+    SELECT id FROM public.user_profiles
+    WHERE clerk_id = auth.jwt()->>'sub'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- =============================================
 -- HELPER FUNCTION: Check if user is room member
 -- =============================================
 
@@ -12,7 +26,7 @@ BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.room_players
     WHERE room_id = room_uuid
-    AND user_id = auth.jwt()->>'sub'
+    AND user_id = auth_profile_id()
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -23,7 +37,7 @@ BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.rooms
     WHERE id = room_uuid
-    AND host_id = auth.jwt()->>'sub'
+    AND host_id = auth_profile_id()
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -36,24 +50,24 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE POLICY "Users can view joined rooms"
   ON public.rooms FOR SELECT
   USING (
-    host_id = auth.jwt()->>'sub'
+    host_id = auth_profile_id()
     OR is_room_member(id)
   );
 
 -- Users can create rooms (they become host)
 CREATE POLICY "Users can create rooms"
   ON public.rooms FOR INSERT
-  WITH CHECK (host_id = auth.jwt()->>'sub');
+  WITH CHECK (host_id = auth_profile_id());
 
 -- Only host can update room
 CREATE POLICY "Host can update room"
   ON public.rooms FOR UPDATE
-  USING (host_id = auth.jwt()->>'sub');
+  USING (host_id = auth_profile_id());
 
 -- Only host can delete room
 CREATE POLICY "Host can delete room"
   ON public.rooms FOR DELETE
-  USING (host_id = auth.jwt()->>'sub');
+  USING (host_id = auth_profile_id());
 
 -- Service role full access
 CREATE POLICY "Service role rooms access"
@@ -72,13 +86,13 @@ CREATE POLICY "Members can view room players"
 -- Users can join rooms (insert themselves)
 CREATE POLICY "Users can join rooms"
   ON public.room_players FOR INSERT
-  WITH CHECK (user_id = auth.jwt()->>'sub');
+  WITH CHECK (user_id = auth_profile_id());
 
 -- Host can remove players, users can leave
 CREATE POLICY "Host or self can remove player"
   ON public.room_players FOR DELETE
   USING (
-    user_id = auth.jwt()->>'sub'
+    user_id = auth_profile_id()
     OR is_room_host(room_id)
   );
 
@@ -127,7 +141,7 @@ CREATE POLICY "Members can view room sets"
     EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND (host_id = auth.jwt()->>'sub' OR is_room_member(id))
+      AND (host_id = auth_profile_id() OR is_room_member(id))
     )
   );
 
@@ -138,7 +152,7 @@ CREATE POLICY "Host can create sets"
     EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND host_id = auth.jwt()->>'sub'
+      AND host_id = auth_profile_id()
     )
   );
 
@@ -149,7 +163,7 @@ CREATE POLICY "Host can update sets"
     EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND host_id = auth.jwt()->>'sub'
+      AND host_id = auth_profile_id()
     )
   );
 
@@ -160,7 +174,7 @@ CREATE POLICY "Host can delete sets"
     EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND host_id = auth.jwt()->>'sub'
+      AND host_id = auth_profile_id()
     )
   );
 
@@ -181,7 +195,7 @@ CREATE POLICY "Members can view set rows"
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
       WHERE rs.id = set_id
-      AND (r.host_id = auth.jwt()->>'sub' OR is_room_member(r.id))
+      AND (r.host_id = auth_profile_id() OR is_room_member(r.id))
     )
   );
 
@@ -193,7 +207,7 @@ CREATE POLICY "Host can create set rows"
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
       WHERE rs.id = set_id
-      AND r.host_id = auth.jwt()->>'sub'
+      AND r.host_id = auth_profile_id()
     )
   );
 
@@ -205,7 +219,7 @@ CREATE POLICY "Host can update set rows"
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
       WHERE rs.id = set_id
-      AND r.host_id = auth.jwt()->>'sub'
+      AND r.host_id = auth_profile_id()
     )
   );
 
@@ -217,7 +231,7 @@ CREATE POLICY "Host can delete set rows"
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
       WHERE rs.id = set_id
-      AND r.host_id = auth.jwt()->>'sub'
+      AND r.host_id = auth_profile_id()
     )
   );
 
@@ -238,7 +252,7 @@ CREATE POLICY "Members can view answers"
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
       WHERE rs.id = set_id
-      AND (r.host_id = auth.jwt()->>'sub' OR is_room_member(r.id))
+      AND (r.host_id = auth_profile_id() OR is_room_member(r.id))
     )
   );
 
@@ -246,7 +260,7 @@ CREATE POLICY "Members can view answers"
 CREATE POLICY "Users can submit own answers"
   ON public.player_answers FOR INSERT
   WITH CHECK (
-    user_id = auth.jwt()->>'sub'
+    user_id = auth_profile_id()
     AND EXISTS (
       SELECT 1 FROM public.room_sets rs
       JOIN public.rooms r ON r.id = rs.room_id
@@ -258,12 +272,12 @@ CREATE POLICY "Users can submit own answers"
 -- Users can update their own answers
 CREATE POLICY "Users can update own answers"
   ON public.player_answers FOR UPDATE
-  USING (user_id = auth.jwt()->>'sub');
+  USING (user_id = auth_profile_id());
 
 -- Users can delete their own answers
 CREATE POLICY "Users can delete own answers"
   ON public.player_answers FOR DELETE
-  USING (user_id = auth.jwt()->>'sub');
+  USING (user_id = auth_profile_id());
 
 -- Service role full access
 CREATE POLICY "Service role player_answers access"

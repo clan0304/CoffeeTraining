@@ -12,7 +12,7 @@ export type Json =
 
 export interface UserProfile {
   id: string
-  user_id: string
+  clerk_id: string
   email: string
   username: string | null
   bio: string | null
@@ -25,7 +25,7 @@ export interface UserProfile {
 // Public view - email & onboarding_completed are null for other users
 export interface PublicProfile {
   id: string
-  user_id: string
+  clerk_id: string
   email: string | null
   username: string | null
   bio: string | null
@@ -39,7 +39,7 @@ export interface PublicProfile {
 // ROOMS
 // =============================================
 
-export type RoomStatus = 'waiting' | 'countdown' | 'playing' | 'finished'
+export type RoomStatus = 'waiting' | 'countdown' | 'playing' | 'paused' | 'finished'
 
 export interface Room {
   id: string
@@ -49,6 +49,8 @@ export interface Room {
   status: RoomStatus
   timer_minutes: number
   timer_started_at: string | null
+  paused_at: string | null
+  active_set_id: string | null
   created_at: string
   updated_at: string
 }
@@ -94,6 +96,20 @@ export interface PlayerAnswer {
   selected_position: number  // 1, 2, or 3
   is_correct: boolean | null
   answered_at: string
+}
+
+// =============================================
+// ROUND RESULTS
+// =============================================
+
+export interface RoundResult {
+  id: string
+  room_id: string
+  user_id: string
+  timer_started_at: string  // Identifies which round
+  finished_at: string
+  elapsed_ms: number
+  created_at: string
 }
 
 // =============================================

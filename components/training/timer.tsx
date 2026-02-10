@@ -13,6 +13,7 @@ interface TimerProps {
   startTime?: string  // ISO timestamp when timer was started (for room sync)
   autoStart?: boolean // Auto-start on mount
   hideControls?: boolean // Hide Start/Pause/Reset buttons (for multiplayer)
+  isPaused?: boolean // Externally controlled pause (for multiplayer)
 }
 
 export function Timer({
@@ -24,6 +25,7 @@ export function Timer({
   startTime,
   autoStart = false,
   hideControls = false,
+  isPaused = false,
 }: TimerProps) {
   // Calculate initial seconds based on startTime if provided
   const calculateRemainingSeconds = useCallback(() => {
@@ -65,7 +67,7 @@ export function Timer({
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null
 
-    if (isRunning && totalSeconds > 0) {
+    if (isRunning && !isPaused && totalSeconds > 0) {
       interval = setInterval(() => {
         setTotalSeconds((prev) => {
           if (prev <= 1) {
@@ -81,7 +83,7 @@ export function Timer({
     return () => {
       if (interval) clearInterval(interval)
     }
-  }, [isRunning, totalSeconds, onTimeUp])
+  }, [isRunning, isPaused, totalSeconds, onTimeUp])
 
   const handleStart = useCallback(() => {
     setIsRunning(true)
@@ -157,6 +159,13 @@ export function Timer({
               >
                 Reset
               </Button>
+            </div>
+          )}
+
+          {/* Paused message (multiplayer) */}
+          {isPaused && hideControls && (
+            <div className="text-orange-500 font-semibold animate-pulse">
+              PAUSED
             </div>
           )}
 

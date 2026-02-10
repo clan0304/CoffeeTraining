@@ -2,9 +2,25 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { createAdminSupabaseClient } from '@/lib/supabase/admin'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { z } from 'zod'
-import type { Room, RoomInvitation, RoomPlayer, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@/types/database'
+import type { Room, RoomInvitation, RoomPlayer, PublicProfile, RoomCoffee, RoomSet, RoomSetRow, RoundResult } from '@/types/database'
+
+// =============================================
+// HELPER: Resolve Clerk auth to user_profiles UUID
+// =============================================
+
+async function getProfileId(): Promise<{ profileId: string; clerkId: string } | null> {
+  const { userId: clerkId } = await auth()
+  if (!clerkId) return null
+  const supabase = createAdminSupabaseClient()
+  const { data } = await supabase
+    .from('user_profiles')
+    .select('id')
+    .eq('clerk_id', clerkId)
+    .single()
+  if (!data) return null
+  return { profileId: data.id, clerkId }
+}
 
 // Generate a unique 6-character room code
 function generateRoomCode(): string {
@@ -29,11 +45,9 @@ export async function createRoom(input: {
   name: string | null
   timerMinutes?: number
 }): Promise<{ room?: Room; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const result = createRoomSchema.safeParse(input)
   if (!result.success) {
@@ -61,7 +75,7 @@ export async function createRoom(input: {
   const { data: room, error: roomError } = await supabase
     .from('rooms')
     .insert({
-      host_id: userId,
+      host_id: profileId,
       code,
       name: result.data.name,
       timer_minutes: result.data.timerMinutes || 8,
@@ -78,7 +92,7 @@ export async function createRoom(input: {
   // Add host as a player
   await supabase.from('room_players').insert({
     room_id: room.id,
-    user_id: userId,
+    user_id: profileId,
   })
 
   return { room }
@@ -91,12 +105,10 @@ export async function createRoom(input: {
 export async function inviteUserByUsername(
   roomId: string,
   username: string
-): Promise<{ invitation?: RoomInvitation; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+): Promise<{ invitation?: RoomInvitation; invitedClerkId?: string; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -111,26 +123,26 @@ export async function inviteUserByUsername(
     return { error: 'Room not found' }
   }
 
-  if (room.host_id !== userId) {
+  if (room.host_id !== profileId) {
     return { error: 'Only the host can invite users' }
   }
 
-  // Find the user by username (case-insensitive)
-  const { data: profile, error: profileError } = await supabase
+  // Find the user by username (case-insensitive) — select both id (UUID) and clerk_id
+  const { data: invitedProfile, error: profileError } = await supabase
     .from('user_profiles')
-    .select('user_id, username')
+    .select('id, clerk_id, username')
     .ilike('username', username)
-    .single<{ user_id: string; username: string }>()
+    .single<{ id: string; clerk_id: string; username: string }>()
 
   if (profileError) {
     console.error('Error finding user:', profileError)
   }
 
-  if (!profile) {
+  if (!invitedProfile) {
     return { error: 'User not found' }
   }
 
-  if (profile.user_id === userId) {
+  if (invitedProfile.id === profileId) {
     return { error: 'You cannot invite yourself' }
   }
 
@@ -139,7 +151,7 @@ export async function inviteUserByUsername(
     .from('room_invitations')
     .select('id, status')
     .eq('room_id', roomId)
-    .eq('invited_user_id', profile.user_id)
+    .eq('invited_user_id', invitedProfile.id)
     .maybeSingle()
 
   if (existingInvite) {
@@ -151,7 +163,7 @@ export async function inviteUserByUsername(
     .from('room_players')
     .select('id')
     .eq('room_id', roomId)
-    .eq('user_id', profile.user_id)
+    .eq('user_id', invitedProfile.id)
     .maybeSingle()
 
   if (existingPlayer) {
@@ -163,8 +175,8 @@ export async function inviteUserByUsername(
     .from('room_invitations')
     .insert({
       room_id: roomId,
-      invited_user_id: profile.user_id,
-      invited_by: userId,
+      invited_user_id: invitedProfile.id,
+      invited_by: profileId,
       status: 'pending',
     })
     .select()
@@ -175,7 +187,7 @@ export async function inviteUserByUsername(
     return { error: 'Failed to send invitation' }
   }
 
-  return { invitation }
+  return { invitation, invitedClerkId: invitedProfile.clerk_id }
 }
 
 // =============================================
@@ -186,11 +198,9 @@ export async function respondToInvitation(
   invitationId: string,
   accept: boolean
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -205,7 +215,7 @@ export async function respondToInvitation(
     return { error: 'Invitation not found' }
   }
 
-  if (invitation.invited_user_id !== userId) {
+  if (invitation.invited_user_id !== profileId) {
     return { error: 'This invitation is not for you' }
   }
 
@@ -233,7 +243,7 @@ export async function respondToInvitation(
       .from('room_players')
       .insert({
         room_id: invitation.room_id,
-        user_id: userId,
+        user_id: profileId,
       })
 
     if (playerError) {
@@ -252,11 +262,9 @@ export async function respondToInvitation(
 export async function joinRoomByCode(
   code: string
 ): Promise<{ room?: Room; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -280,7 +288,7 @@ export async function joinRoomByCode(
     .from('room_players')
     .select('id')
     .eq('room_id', room.id)
-    .eq('user_id', userId)
+    .eq('user_id', profileId)
     .maybeSingle()
 
   if (existingPlayer) {
@@ -292,7 +300,7 @@ export async function joinRoomByCode(
     .from('room_players')
     .insert({
       room_id: room.id,
-      user_id: userId,
+      user_id: profileId,
     })
 
   if (playerError) {
@@ -311,11 +319,9 @@ export async function getMyInvitations(): Promise<{
   invitations?: Array<RoomInvitation & { room: Room; inviter: PublicProfile | null }>
   error?: string
 }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -323,7 +329,7 @@ export async function getMyInvitations(): Promise<{
   const { data: invitations, error } = await supabase
     .from('room_invitations')
     .select('*, room:rooms(*)')
-    .eq('invited_user_id', userId)
+    .eq('invited_user_id', profileId)
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
 
@@ -332,14 +338,14 @@ export async function getMyInvitations(): Promise<{
     return { error: 'Failed to load invitations' }
   }
 
-  // Fetch inviter profiles separately
+  // Fetch inviter profiles separately (key by UUID id)
   const inviterIds = [...new Set(invitations?.map((i) => i.invited_by) || [])]
   const { data: inviters } = await supabase
     .from('user_profiles')
-    .select('user_id, username, photo_url, bio')
-    .in('user_id', inviterIds)
+    .select('id, username, photo_url, bio')
+    .in('id', inviterIds)
 
-  const inviterMap = new Map(inviters?.map((p) => [p.user_id, p]) || [])
+  const inviterMap = new Map(inviters?.map((p) => [p.id, p]) || [])
 
   const result = invitations?.map((inv) => ({
     ...inv,
@@ -360,13 +366,12 @@ export async function getRoomDetails(roomId: string): Promise<{
     coffees: RoomCoffee[]
     sets: Array<RoomSet & { rows: Array<RoomSetRow & { pair_coffee: RoomCoffee; odd_coffee: RoomCoffee }> }>
   }
+  currentUserProfileId?: string
   error?: string
 }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -432,7 +437,7 @@ export async function getRoomDetails(roomId: string): Promise<{
     }))
   }
 
-  // Get all user profiles for players and invitations
+  // Get all user profiles for players and invitations (key by UUID id)
   const userIds = [
     ...(players?.map((p) => p.user_id) || []),
     ...(invitations?.map((i) => i.invited_user_id) || []),
@@ -441,10 +446,10 @@ export async function getRoomDetails(roomId: string): Promise<{
 
   const { data: profiles } = await supabase
     .from('user_profiles')
-    .select('user_id, username, photo_url, bio')
-    .in('user_id', uniqueUserIds)
+    .select('id, username, photo_url, bio')
+    .in('id', uniqueUserIds)
 
-  const profileMap = new Map(profiles?.map((p) => [p.user_id, p]) || [])
+  const profileMap = new Map(profiles?.map((p) => [p.id, p]) || [])
 
   // Combine data
   const playersWithProfiles = players?.map((p) => ({
@@ -465,6 +470,7 @@ export async function getRoomDetails(roomId: string): Promise<{
       coffees: (coffees || []) as RoomCoffee[],
       sets: setsWithRows,
     },
+    currentUserProfileId: profileId,
   }
 }
 
@@ -477,11 +483,9 @@ export async function getMyRooms(): Promise<{
   joined?: Room[]
   error?: string
 }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -489,7 +493,7 @@ export async function getMyRooms(): Promise<{
   const { data: hostedRooms, error: hostedError } = await supabase
     .from('rooms')
     .select('*')
-    .eq('host_id', userId)
+    .eq('host_id', profileId)
     .order('created_at', { ascending: false })
 
   if (hostedError) {
@@ -501,7 +505,7 @@ export async function getMyRooms(): Promise<{
   const { data: playerRecords, error: playerError } = await supabase
     .from('room_players')
     .select('room_id')
-    .eq('user_id', userId)
+    .eq('user_id', profileId)
 
   if (playerError) {
     console.error('Error fetching player rooms:', playerError)
@@ -537,11 +541,9 @@ export async function getMyRooms(): Promise<{
 export async function deleteRoom(
   roomId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -556,7 +558,7 @@ export async function deleteRoom(
     return { error: 'Room not found' }
   }
 
-  if (room.host_id !== userId) {
+  if (room.host_id !== profileId) {
     return { error: 'Only the host can delete the room' }
   }
 
@@ -580,11 +582,9 @@ export async function addCoffee(
   name: string,
   description?: string
 ): Promise<{ coffee?: RoomCoffee; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -595,7 +595,7 @@ export async function addCoffee(
     .eq('id', roomId)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can add coffees' }
   }
 
@@ -640,11 +640,9 @@ export async function addCoffee(
 export async function removeCoffee(
   coffeeId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -665,7 +663,7 @@ export async function removeCoffee(
     .eq('id', coffee.room_id)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can remove coffees' }
   }
 
@@ -689,11 +687,8 @@ export async function removeCoffee(
 export async function getRoomCoffees(
   roomId: string
 ): Promise<{ coffees?: RoomCoffee[]; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
 
   const supabase = createAdminSupabaseClient()
 
@@ -718,11 +713,9 @@ export async function getRoomCoffees(
 export async function generateTriangulationSet(
   roomId: string
 ): Promise<{ set?: RoomSet; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -733,7 +726,7 @@ export async function generateTriangulationSet(
     .eq('id', roomId)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can generate sets' }
   }
 
@@ -792,8 +785,8 @@ export async function generateTriangulationSet(
   }
 
   // Generate 8 rows with BALANCED coffee usage
-  // Total cups = 8 rows × 3 cups = 24 cups
-  // Each coffee should appear roughly equally (e.g., 5 coffees → 5,5,5,5,4)
+  // Total cups = 8 rows x 3 cups = 24 cups
+  // Each coffee should appear roughly equally (e.g., 5 coffees -> 5,5,5,5,4)
 
   // Track usage count for each coffee
   const usageCount = new Map<string, number>()
@@ -802,7 +795,7 @@ export async function generateTriangulationSet(
   // Track used pairs within this set to avoid duplicates like (A,B) and (B,A)
   const usedPairs = new Set<string>()
   const makePairKey = (c1: string, c2: string) => [c1, c2].sort().join('-')
-  // Directed combo key: pair→odd (different from odd→pair)
+  // Directed combo key: pair->odd (different from odd->pair)
   const makeComboKey = (pairId: string, oddId: string) => `${pairId}:${oddId}`
 
   const selectedRows: Array<{ pair: RoomCoffee; odd: RoomCoffee; oddPosition: number }> = []
@@ -817,8 +810,8 @@ export async function generateTriangulationSet(
     })
 
     // Find the best pair (pair coffee appears 2x, odd coffee appears 1x)
-    // Priority: 1) totally new — neither A→B nor B→A used in previous sets
-    //           2) similar — reverse (B→A) exists but exact (A→B) doesn't
+    // Priority: 1) totally new — neither A->B nor B->A used in previous sets
+    //           2) similar — reverse (B->A) exists but exact (A->B) doesn't
     //           3) exact duplicate — last resort fallback
     let pair: RoomCoffee = sortedByUsage[0]
     let odd: RoomCoffee = sortedByUsage[1]
@@ -915,11 +908,8 @@ export async function getRoomSets(
   sets?: Array<RoomSet & { rows: Array<RoomSetRow & { pair_coffee: RoomCoffee; odd_coffee: RoomCoffee }> }>
   error?: string
 }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
 
   const supabase = createAdminSupabaseClient()
 
@@ -974,11 +964,9 @@ export async function getRoomSets(
 export async function createEmptySet(
   roomId: string
 ): Promise<{ set?: RoomSet; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -989,7 +977,7 @@ export async function createEmptySet(
     .eq('id', roomId)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can create sets' }
   }
 
@@ -1067,11 +1055,9 @@ export async function updateSetRow(
   oddCoffeeId: string,
   oddPosition: number
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   if (oddPosition < 1 || oddPosition > 3) {
     return { error: 'Odd position must be 1, 2, or 3' }
@@ -1110,7 +1096,7 @@ export async function updateSetRow(
     .eq('id', set.room_id)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can edit sets' }
   }
 
@@ -1139,11 +1125,9 @@ export async function updateSetRow(
 export async function deleteSet(
   setId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -1164,7 +1148,7 @@ export async function deleteSet(
     .eq('id', set.room_id)
     .single<{ host_id: string; status: string }>()
 
-  if (!room || room.host_id !== userId) {
+  if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can delete sets' }
   }
 
@@ -1191,13 +1175,12 @@ export async function deleteSet(
 // =============================================
 
 export async function startGame(
-  roomId: string
+  roomId: string,
+  setId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -1212,7 +1195,7 @@ export async function startGame(
     return { error: 'Room not found' }
   }
 
-  if (room.host_id !== userId) {
+  if (room.host_id !== profileId) {
     return { error: 'Only the host can start the game' }
   }
 
@@ -1220,11 +1203,24 @@ export async function startGame(
     return { error: 'Game has already started' }
   }
 
-  // Set status to countdown (updated_at marks countdown start)
+  // Verify the set exists and belongs to this room
+  const { data: set } = await supabase
+    .from('room_sets')
+    .select('id')
+    .eq('id', setId)
+    .eq('room_id', roomId)
+    .maybeSingle()
+
+  if (!set) {
+    return { error: 'Set not found' }
+  }
+
+  // Set status to countdown with active set
   const { error } = await supabase
     .from('rooms')
     .update({
       status: 'countdown',
+      active_set_id: setId,
       updated_at: new Date().toISOString(),
     })
     .eq('id', roomId)
@@ -1244,11 +1240,9 @@ export async function startGame(
 export async function beginPlaying(
   roomId: string
 ): Promise<{ success?: boolean; error?: string; timerStartedAt?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -1263,7 +1257,7 @@ export async function beginPlaying(
     return { error: 'Room not found' }
   }
 
-  if (room.host_id !== userId) {
+  if (room.host_id !== profileId) {
     return { error: 'Only the host can control the game' }
   }
 
@@ -1297,17 +1291,259 @@ export async function beginPlaying(
 }
 
 // =============================================
+// PAUSE GAME (host only)
+// =============================================
+
+export async function pauseGame(
+  roomId: string
+): Promise<{ pausedAt?: string; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status')
+    .eq('id', roomId)
+    .single<{ host_id: string; status: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id !== profileId) {
+    return { error: 'Only the host can pause the game' }
+  }
+
+  if (room.status !== 'playing') {
+    return { error: 'Game is not currently playing' }
+  }
+
+  const pausedAt = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      status: 'paused',
+      paused_at: pausedAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+
+  if (error) {
+    console.error('Error pausing game:', error)
+    return { error: 'Failed to pause game' }
+  }
+
+  return { pausedAt }
+}
+
+// =============================================
+// RESUME GAME (host only)
+// =============================================
+
+export async function resumeGame(
+  roomId: string
+): Promise<{ newTimerStartedAt?: string; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status, timer_started_at, paused_at')
+    .eq('id', roomId)
+    .single<{ host_id: string; status: string; timer_started_at: string | null; paused_at: string | null }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id !== profileId) {
+    return { error: 'Only the host can resume the game' }
+  }
+
+  if (room.status !== 'paused') {
+    return { error: 'Game is not paused' }
+  }
+
+  if (!room.timer_started_at || !room.paused_at) {
+    return { error: 'Missing timer data' }
+  }
+
+  // Shift timer_started_at forward by the pause duration
+  const pauseDurationMs = Date.now() - new Date(room.paused_at).getTime()
+  const newTimerStartedAt = new Date(
+    new Date(room.timer_started_at).getTime() + pauseDurationMs
+  ).toISOString()
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      status: 'playing',
+      timer_started_at: newTimerStartedAt,
+      paused_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+
+  if (error) {
+    console.error('Error resuming game:', error)
+    return { error: 'Failed to resume game' }
+  }
+
+  return { newTimerStartedAt }
+}
+
+// =============================================
+// END ROUND (host only) — reset room to waiting for next round
+// =============================================
+
+export async function endRound(
+  roomId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status')
+    .eq('id', roomId)
+    .single<{ host_id: string; status: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id !== profileId) {
+    return { error: 'Only the host can end the round' }
+  }
+
+  if (room.status === 'waiting') {
+    return { success: true } // Already waiting
+  }
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      status: 'waiting',
+      timer_started_at: null,
+      paused_at: null,
+      active_set_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+
+  if (error) {
+    console.error('Error ending round:', error)
+    return { error: 'Failed to end round' }
+  }
+
+  return { success: true }
+}
+
+// =============================================
+// FINISH ROUND (any player)
+// =============================================
+
+export async function finishRound(
+  roomId: string
+): Promise<{ elapsedMs?: number; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('status, timer_started_at, paused_at')
+    .eq('id', roomId)
+    .single<{ status: string; timer_started_at: string | null; paused_at: string | null }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.status !== 'playing' && room.status !== 'paused') {
+    return { error: 'Game is not in progress' }
+  }
+
+  if (!room.timer_started_at) {
+    return { error: 'Timer has not started' }
+  }
+
+  // Verify the user is a player in this room
+  const { data: player } = await supabase
+    .from('room_players')
+    .select('id')
+    .eq('room_id', roomId)
+    .eq('user_id', profileId)
+    .maybeSingle()
+
+  if (!player) {
+    return { error: 'You are not a player in this room' }
+  }
+
+  // Check if already finished this round
+  const { data: existing } = await supabase
+    .from('round_results')
+    .select('id')
+    .eq('room_id', roomId)
+    .eq('user_id', profileId)
+    .eq('timer_started_at', room.timer_started_at)
+    .maybeSingle()
+
+  if (existing) {
+    return { error: 'Already finished this round' }
+  }
+
+  // Calculate elapsed time (pause-aware)
+  // If paused: elapsed = paused_at - timer_started_at
+  // If playing: elapsed = now - timer_started_at
+  const now = Date.now()
+  const timerStart = new Date(room.timer_started_at).getTime()
+  const elapsedMs = room.status === 'paused' && room.paused_at
+    ? new Date(room.paused_at).getTime() - timerStart
+    : now - timerStart
+
+  const finishedAt = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('round_results')
+    .insert({
+      room_id: roomId,
+      user_id: profileId,
+      timer_started_at: room.timer_started_at,
+      finished_at: finishedAt,
+      elapsed_ms: Math.max(0, Math.round(elapsedMs)),
+    })
+
+  if (error) {
+    console.error('Error recording finish:', error)
+    return { error: 'Failed to record finish time' }
+  }
+
+  return { elapsedMs: Math.max(0, Math.round(elapsedMs)) }
+}
+
+// =============================================
 // CANCEL INVITATION (host only)
 // =============================================
 
 export async function cancelInvitation(
   invitationId: string
 ): Promise<{ success?: boolean; error?: string }> {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return { error: 'Not authenticated' }
-  }
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
 
   const supabase = createAdminSupabaseClient()
 
@@ -1322,7 +1558,7 @@ export async function cancelInvitation(
     return { error: 'Invitation not found' }
   }
 
-  if (invitation.invited_by !== userId) {
+  if (invitation.invited_by !== profileId) {
     return { error: 'Only the person who sent the invitation can cancel it' }
   }
 

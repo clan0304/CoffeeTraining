@@ -19,6 +19,10 @@ import {
   deleteRoom,
   startGame,
   beginPlaying,
+  pauseGame,
+  resumeGame,
+  finishRound,
+  endRound,
   addCoffee,
   removeCoffee,
   generateTriangulationSet,
@@ -43,6 +47,7 @@ export default function RoomPage() {
   const roomId = params.id as string
 
   const [room, setRoom] = useState<RoomWithDetails | null>(null)
+  const [currentUserProfileId, setCurrentUserProfileId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -60,6 +65,7 @@ export default function RoomPage() {
   const [generatingSet, setGeneratingSet] = useState(false)
   const [creatingManualSet, setCreatingManualSet] = useState(false)
   const [editingSetId, setEditingSetId] = useState<string | null>(null)
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null)
 
   // Game state
   const [showCountdown, setShowCountdown] = useState(false)
@@ -68,6 +74,11 @@ export default function RoomPage() {
   const [gamePhase, setGamePhase] = useState<'playing' | 'inputting' | 'finished'>('playing')
   const [answers, setAnswers] = useState<(number | null)[]>(Array(8).fill(null))
   const [correctAnswers, setCorrectAnswers] = useState<(number | null)[]>(Array(8).fill(null))
+  const [isPaused, setIsPaused] = useState(false)
+  const [pauseLoading, setPauseLoading] = useState(false)
+  const [finishedPlayers, setFinishedPlayers] = useState<Array<{ userId: string; username: string; elapsedMs: number }>>([])
+  const [myElapsedMs, setMyElapsedMs] = useState<number | null>(null)
+  const [finishLoading, setFinishLoading] = useState(false)
 
   const loadRoom = useCallback(async () => {
     const result = await getRoomDetails(roomId)
@@ -75,6 +86,9 @@ export default function RoomPage() {
       setError(result.error)
     } else if (result.room) {
       setRoom(result.room)
+      if (result.currentUserProfileId) {
+        setCurrentUserProfileId(result.currentUserProfileId)
+      }
     }
     setLoading(false)
   }, [roomId])
@@ -130,10 +144,51 @@ export default function RoomPage() {
         const { timerStartedAt } = payload.payload as { timerStartedAt: string }
         setShowCountdown(false)
         setWaitingForTimer(false)
+        setIsPaused(false)
+        setFinishedPlayers([])
+        setMyElapsedMs(null)
         setAnswers(Array(8).fill(null))
         setCorrectAnswers(Array(8).fill(null))
         setGamePhase('playing')
-        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
+        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt, paused_at: null } : prev)
+      })
+
+      channel.on('broadcast', { event: 'game_pause' }, (payload) => {
+        console.log('[Realtime] Received game_pause broadcast:', payload)
+        setIsPaused(true)
+        setRoom((prev) => prev ? { ...prev, status: 'paused' as const } : prev)
+      })
+
+      channel.on('broadcast', { event: 'game_resume' }, (payload) => {
+        console.log('[Realtime] Received game_resume broadcast:', payload)
+        const { newTimerStartedAt } = payload.payload as { newTimerStartedAt: string }
+        setIsPaused(false)
+        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: newTimerStartedAt, paused_at: null } : prev)
+      })
+
+      channel.on('broadcast', { event: 'player_finished' }, (payload) => {
+        console.log('[Realtime] Received player_finished broadcast:', payload)
+        const { userId: finishedUserId, username, elapsedMs } = payload.payload as { userId: string; username: string; elapsedMs: number }
+        setFinishedPlayers((prev) => {
+          if (prev.some((p) => p.userId === finishedUserId)) return prev
+          return [...prev, { userId: finishedUserId, username, elapsedMs }]
+        })
+      })
+
+      channel.on('broadcast', { event: 'round_ended' }, async () => {
+        console.log('[Realtime] Received round_ended broadcast')
+        setGamePhase('playing')
+        setAnswers(Array(8).fill(null))
+        setCorrectAnswers(Array(8).fill(null))
+        setFinishedPlayers([])
+        setMyElapsedMs(null)
+        setIsPaused(false)
+        setShowCountdown(false)
+        setWaitingForTimer(false)
+        const result = await getRoomDetails(roomId)
+        if (!result.error && result.room) {
+          setRoom(result.room)
+        }
       })
 
       channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
@@ -184,9 +239,8 @@ export default function RoomPage() {
       // Broadcast update to all players in the room
       roomChannel?.send({ type: 'broadcast', event: 'room_updated', payload: {} })
       // Notify the invited user so their invitation list updates in real time
-      if (result.invitation) {
-        const invitedUserId = result.invitation.invited_user_id
-        const notifyChannel = realtime.channel(`user_invitations_${invitedUserId}`)
+      if (result.invitedClerkId) {
+        const notifyChannel = realtime.channel(`user_invitations_${result.invitedClerkId}`)
         notifyChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             notifyChannel.send({ type: 'broadcast', event: 'new_invitation', payload: {} })
@@ -224,13 +278,16 @@ export default function RoomPage() {
   }
 
   const handleStartGame = async () => {
+    if (!selectedSetId) return
     setStartingGame(true)
 
     // Try to set status to 'countdown' in database
-    const result = await startGame(roomId)
+    const result = await startGame(roomId, selectedSetId)
 
     if (result.error) {
       console.warn('Start game error:', result.error)
+      setStartingGame(false)
+      return
     }
 
     // Show countdown immediately for host
@@ -255,7 +312,7 @@ export default function RoomPage() {
   }
 
   const handleCountdownComplete = async () => {
-    if (user?.id === room?.host_id) {
+    if (currentUserProfileId === room?.host_id) {
       // Host: write to DB, get exact timestamp, broadcast to all players
       const result = await beginPlaying(roomId)
       if (result.error) {
@@ -267,6 +324,8 @@ export default function RoomPage() {
 
       // Update own state
       setShowCountdown(false)
+      setFinishedPlayers([])
+      setMyElapsedMs(null)
       setAnswers(Array(8).fill(null))
       setCorrectAnswers(Array(8).fill(null))
       setGamePhase('playing')
@@ -289,11 +348,67 @@ export default function RoomPage() {
     }
   }
 
-  const handleTimeUp = () => {
+  const handlePauseGame = async () => {
+    setPauseLoading(true)
+    const result = await pauseGame(roomId)
+    if (result.error) {
+      console.error('Pause error:', result.error)
+    } else {
+      setIsPaused(true)
+      setRoom((prev) => prev ? { ...prev, status: 'paused' as const } : prev)
+      roomChannel?.send({
+        type: 'broadcast',
+        event: 'game_pause',
+        payload: {},
+      })
+    }
+    setPauseLoading(false)
+  }
+
+  const handleResumeGame = async () => {
+    setPauseLoading(true)
+    const result = await resumeGame(roomId)
+    if (result.error) {
+      console.error('Resume error:', result.error)
+    } else {
+      const newTimerStartedAt = result.newTimerStartedAt!
+      setIsPaused(false)
+      setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: newTimerStartedAt, paused_at: null } : prev)
+      roomChannel?.send({
+        type: 'broadcast',
+        event: 'game_resume',
+        payload: { newTimerStartedAt },
+      })
+    }
+    setPauseLoading(false)
+  }
+
+  const handleFinish = async () => {
+    if (myElapsedMs !== null) {
+      // Already finished, just go to inputting
+      setGamePhase('inputting')
+      return
+    }
+
+    setFinishLoading(true)
+    const result = await finishRound(roomId)
+    if (result.error) {
+      console.error('Finish error:', result.error)
+    } else if (result.elapsedMs !== undefined) {
+      setMyElapsedMs(result.elapsedMs)
+      // Broadcast to all players
+      const username = user?.username || user?.firstName || 'Unknown'
+      roomChannel?.send({
+        type: 'broadcast',
+        event: 'player_finished',
+        payload: { userId: currentUserProfileId, username, elapsedMs: result.elapsedMs },
+      })
+    }
+    setFinishLoading(false)
     setGamePhase('inputting')
   }
 
-  const handleSubmitAnswers = () => {
+  const handleTimeUp = () => {
     setGamePhase('inputting')
   }
 
@@ -313,10 +428,28 @@ export default function RoomPage() {
     })
   }
 
-  const handleBackToLobby = () => {
+  const handleEndRound = async () => {
+    const result = await endRound(roomId)
+    if (result.error) {
+      console.error('End round error:', result.error)
+      return
+    }
+
+    // Reset local state
     setGamePhase('playing')
     setAnswers(Array(8).fill(null))
     setCorrectAnswers(Array(8).fill(null))
+    setFinishedPlayers([])
+    setMyElapsedMs(null)
+    setIsPaused(false)
+
+    // Broadcast to all players
+    roomChannel?.send({
+      type: 'broadcast',
+      event: 'round_ended',
+      payload: {},
+    })
+
     loadRoom()
   }
 
@@ -385,6 +518,14 @@ export default function RoomPage() {
     broadcastUpdate()
   }
 
+  // Format milliseconds to mm:ss
+  const formatElapsedMs = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000)
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -407,7 +548,7 @@ export default function RoomPage() {
     )
   }
 
-  const isHost = user?.id === room.host_id
+  const isHost = currentUserProfileId === room.host_id
   const pendingInvitations = room.invitations.filter((i) => i.status === 'pending')
   const answeredCount = answers.filter((a) => a !== null).length
   const correctCount = correctAnswers.filter((a) => a !== null).length
@@ -434,16 +575,13 @@ export default function RoomPage() {
 
   // Playing view - tasting and marking guesses
   // Show playing view when game is active (playing status OR countdown finished locally)
-  const isGameActive = room.status === 'playing' || (room.status === 'countdown' && !showCountdown)
+  const isGameActive = room.status === 'playing' || room.status === 'paused' || (room.status === 'countdown' && !showCountdown)
   if (isGameActive && gamePhase === 'playing') {
     return (
       <div className="min-h-screen bg-background p-4">
         <div className="max-w-md mx-auto space-y-6 pt-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold">{room.name || 'Training Room'}</h1>
-            <Button variant="ghost" size="sm" onClick={handleSubmitAnswers}>
-              Done
-            </Button>
           </div>
 
           <Timer
@@ -451,7 +589,42 @@ export default function RoomPage() {
             onTimeUp={handleTimeUp}
             startTime={room.timer_started_at || undefined}
             hideControls
+            isPaused={isPaused}
           />
+
+          {isHost && (
+            <div className="flex justify-center">
+              {isPaused ? (
+                <Button
+                  onClick={handleResumeGame}
+                  disabled={pauseLoading}
+                  size="sm"
+                >
+                  {pauseLoading ? 'Resuming...' : 'Resume'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handlePauseGame}
+                  disabled={pauseLoading}
+                  variant="secondary"
+                  size="sm"
+                >
+                  {pauseLoading ? 'Pausing...' : 'Pause'}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Finished players */}
+          {finishedPlayers.length > 0 && (
+            <div className="space-y-1">
+              {finishedPlayers.map((p) => (
+                <p key={p.userId} className="text-sm text-muted-foreground text-center">
+                  @{p.username} finished in {formatElapsedMs(p.elapsedMs)}
+                </p>
+              ))}
+            </div>
+          )}
 
           <AnswerSheet
             answers={answers}
@@ -460,11 +633,11 @@ export default function RoomPage() {
           />
 
           <Button
-            onClick={handleSubmitAnswers}
+            onClick={handleFinish}
             className="w-full"
-            disabled={answeredCount === 0}
+            disabled={finishLoading}
           >
-            Submit Answers ({answeredCount}/8)
+            {finishLoading ? 'Finishing...' : `Finish (${answeredCount}/8)`}
           </Button>
         </div>
       </div>
@@ -478,12 +651,18 @@ export default function RoomPage() {
         <div className="max-w-md mx-auto space-y-6 pt-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold">Check Cups</h1>
-            {allRevealed && (
-              <Button variant="ghost" size="sm" onClick={handleBackToLobby}>
-                Done
-              </Button>
-            )}
           </div>
+
+          {/* Show finish time */}
+          {myElapsedMs !== null && (
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="pt-4">
+                <p className="text-center font-medium">
+                  Finished in <span className="text-primary font-bold">{formatElapsedMs(myElapsedMs)}</span>
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {!allRevealed && (
             <Card className="bg-muted/50">
@@ -502,12 +681,16 @@ export default function RoomPage() {
             mode="input"
           />
 
-          {allRevealed && (
-            <div className="space-y-2">
-              <Button onClick={handleBackToLobby} className="w-full">
-                Back to Room
-              </Button>
-            </div>
+          {allRevealed && isHost && (
+            <Button onClick={handleEndRound} className="w-full">
+              End Round
+            </Button>
+          )}
+
+          {allRevealed && !isHost && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Waiting for host to start next round...
+            </p>
           )}
         </div>
       </div>
@@ -716,87 +899,108 @@ export default function RoomPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Triangulation Sets ({room.sets.length})</CardTitle>
-              <CardDescription>Generate or manually create sets</CardDescription>
+              <CardDescription>Select a set to play, or create new ones</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {/* Set list */}
-              {room.sets.map((set) => (
-                <div key={set.id} className="border rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">Set {set.set_number}</span>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingSetId(editingSetId === set.id ? null : set.id)}
-                        className="text-muted-foreground"
-                      >
-                        {editingSetId === set.id ? 'Done' : 'Edit'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteSet(set.id)}
-                        className="text-muted-foreground hover:text-red-500"
-                      >
-                        Delete
-                      </Button>
+              {room.sets.map((set) => {
+                const isSelected = selectedSetId === set.id
+                return (
+                  <div
+                    key={set.id}
+                    className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                      isSelected ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/50'
+                    }`}
+                    onClick={() => {
+                      if (editingSetId !== set.id) setSelectedSetId(isSelected ? null : set.id)
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">Set {set.set_number}</span>
+                        {isSelected && (
+                          <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingSetId(editingSetId === set.id ? null : set.id)}
+                          className="text-muted-foreground"
+                        >
+                          {editingSetId === set.id ? 'Done' : 'Edit'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (selectedSetId === set.id) setSelectedSetId(null)
+                            handleDeleteSet(set.id)
+                          }}
+                          className="text-muted-foreground hover:text-red-500"
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
+
+                    {/* View mode */}
+                    {editingSetId !== set.id && (
+                      <div className="space-y-1 text-sm">
+                        {set.rows.map((row) => (
+                          <div key={row.id} className="flex items-center gap-2 text-muted-foreground">
+                            <span className="w-6">{row.row_number}.</span>
+                            <span className="font-mono">
+                              <span>{row.pair_coffee.label}</span>
+                              <span className="mx-1">{row.pair_coffee.label}</span>
+                              <span className="text-primary font-bold">{row.odd_coffee.label}</span>
+                            </span>
+                            <span className="text-xs">
+                              (odd at cup {row.odd_position})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Edit mode */}
+                    {editingSetId === set.id && (
+                      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                        {set.rows.map((row) => (
+                          <div key={row.id} className="flex items-center gap-2 py-1 border-b last:border-0">
+                            <span className="w-6 text-sm font-medium">{row.row_number}.</span>
+                            <select
+                              value={row.pair_coffee.id}
+                              onChange={(e) => handleUpdateRow(row.id, e.target.value, row.odd_coffee.id, row.odd_position)}
+                              className="flex-1 text-sm p-1 border rounded bg-background"
+                            >
+                              {room.coffees.filter(c => c.id !== row.odd_coffee.id).map((coffee) => (
+                                <option key={coffee.id} value={coffee.id}>
+                                  {coffee.label}: {coffee.name} (pair)
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={row.odd_coffee.id}
+                              onChange={(e) => handleUpdateRow(row.id, row.pair_coffee.id, e.target.value, row.odd_position)}
+                              className="flex-1 text-sm p-1 border rounded bg-background"
+                            >
+                              {room.coffees.filter(c => c.id !== row.pair_coffee.id).map((coffee) => (
+                                <option key={coffee.id} value={coffee.id}>
+                                  {coffee.label}: {coffee.name} (odd)
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-
-                  {/* View mode */}
-                  {editingSetId !== set.id && (
-                    <div className="space-y-1 text-sm">
-                      {set.rows.map((row) => (
-                        <div key={row.id} className="flex items-center gap-2 text-muted-foreground">
-                          <span className="w-6">{row.row_number}.</span>
-                          <span className="font-mono">
-                            <span>{row.pair_coffee.label}</span>
-                            <span className="mx-1">{row.pair_coffee.label}</span>
-                            <span className="text-primary font-bold">{row.odd_coffee.label}</span>
-                          </span>
-                          <span className="text-xs">
-                            (odd at cup {row.odd_position})
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Edit mode */}
-                  {editingSetId === set.id && (
-                    <div className="space-y-2">
-                      {set.rows.map((row) => (
-                        <div key={row.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-                          <span className="w-6 text-sm font-medium">{row.row_number}.</span>
-                          <select
-                            value={row.pair_coffee.id}
-                            onChange={(e) => handleUpdateRow(row.id, e.target.value, row.odd_coffee.id, row.odd_position)}
-                            className="flex-1 text-sm p-1 border rounded bg-background"
-                          >
-                            {room.coffees.filter(c => c.id !== row.odd_coffee.id).map((coffee) => (
-                              <option key={coffee.id} value={coffee.id}>
-                                {coffee.label}: {coffee.name} (pair)
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={row.odd_coffee.id}
-                            onChange={(e) => handleUpdateRow(row.id, row.pair_coffee.id, e.target.value, row.odd_position)}
-                            className="flex-1 text-sm p-1 border rounded bg-background"
-                          >
-                            {room.coffees.filter(c => c.id !== row.pair_coffee.id).map((coffee) => (
-                              <option key={coffee.id} value={coffee.id}>
-                                {coffee.label}: {coffee.name} (odd)
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
 
               <div className="flex gap-2">
                 <Button
@@ -838,15 +1042,27 @@ export default function RoomPage() {
                 className="w-full"
                 size="lg"
                 onClick={handleStartGame}
-                disabled={startingGame || room.coffees.length < 2 || room.sets.length === 0}
+                disabled={startingGame || room.coffees.length < 2 || !selectedSetId}
               >
-                {startingGame ? 'Starting...' : 'Start Game'}
+                {startingGame
+                  ? 'Starting...'
+                  : selectedSetId
+                    ? `Start Round (Set ${room.sets.find(s => s.id === selectedSetId)?.set_number})`
+                    : 'Select a Set to Start'}
               </Button>
-              {(room.coffees.length < 2 || room.sets.length === 0) && (
+              {room.coffees.length < 2 && (
                 <p className="text-xs text-muted-foreground text-center">
-                  {room.coffees.length < 2
-                    ? 'Add at least 2 coffees'
-                    : 'Generate at least 1 triangulation set'}
+                  Add at least 2 coffees
+                </p>
+              )}
+              {room.coffees.length >= 2 && room.sets.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Generate at least 1 triangulation set
+                </p>
+              )}
+              {room.sets.length > 0 && !selectedSetId && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Tap a set above to select it
                 </p>
               )}
             </>

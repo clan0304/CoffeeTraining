@@ -8,7 +8,7 @@
 
 CREATE TABLE public.rooms (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  host_id TEXT NOT NULL,  -- Clerk user ID
+  host_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   code CHAR(6) UNIQUE NOT NULL,  -- 6-char room code (e.g., "ABC123")
   name TEXT,  -- Optional room name
   status TEXT DEFAULT 'waiting' CHECK (status IN ('waiting', 'playing', 'finished')),

@@ -9,8 +9,8 @@
 CREATE TABLE public.room_invitations (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-  invited_user_id TEXT NOT NULL,  -- Clerk user ID of invited person
-  invited_by TEXT NOT NULL,  -- Clerk user ID of person who invited
+  invited_user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  invited_by UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -35,26 +35,26 @@ ALTER TABLE public.room_invitations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own invitations"
   ON public.room_invitations FOR SELECT
   USING (
-    invited_user_id = auth.jwt()->>'sub'
-    OR invited_by = auth.jwt()->>'sub'
+    invited_user_id = auth_profile_id()
+    OR invited_by = auth_profile_id()
   );
 
 -- Host can create invitations for their rooms
 CREATE POLICY "Host can invite to room"
   ON public.room_invitations FOR INSERT
   WITH CHECK (
-    invited_by = auth.jwt()->>'sub'
+    invited_by = auth_profile_id()
     AND EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND host_id = auth.jwt()->>'sub'
+      AND host_id = auth_profile_id()
     )
   );
 
 -- Invited user can update (accept/decline) their invitation
 CREATE POLICY "Invited user can respond"
   ON public.room_invitations FOR UPDATE
-  USING (invited_user_id = auth.jwt()->>'sub');
+  USING (invited_user_id = auth_profile_id());
 
 -- Host can delete invitations
 CREATE POLICY "Host can delete invitation"
@@ -63,7 +63,7 @@ CREATE POLICY "Host can delete invitation"
     EXISTS (
       SELECT 1 FROM public.rooms
       WHERE id = room_id
-      AND host_id = auth.jwt()->>'sub'
+      AND host_id = auth_profile_id()
     )
   );
 

@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
       // Create user profile in Supabase
       const { error } = await supabase.from('user_profiles').insert({
-        user_id: id,
+        clerk_id: id,
         email: primaryEmail.email_address,
         onboarding_completed: false,
       })
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       const { error } = await supabase
         .from('user_profiles')
         .delete()
-        .eq('user_id', id)
+        .eq('clerk_id', id)
 
       if (error) {
         console.error('Failed to delete user profile:', error)

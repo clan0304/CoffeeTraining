@@ -9,7 +9,7 @@
 CREATE TABLE public.player_answers (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   set_id UUID NOT NULL REFERENCES public.room_sets(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL,  -- Clerk user ID
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   row_number INTEGER NOT NULL CHECK (row_number >= 1 AND row_number <= 8),
 
   -- Player's selected position (1, 2, or 3)

@@ -109,19 +109,29 @@ export async function completeOnboarding(input: {
     return { error: 'Username is already taken' }
   }
 
-  // Update Supabase profile
+  // Upsert Supabase profile (creates if webhook hasn't fired yet)
   const supabase = createAdminSupabaseClient()
+
+  // Get email from Clerk for the insert case
+  const clerk = await clerkClient()
+  const clerkUser = await clerk.users.getUser(userId)
+  const email = clerkUser.emailAddresses.find(
+    (e) => e.id === clerkUser.primaryEmailAddressId
+  )?.emailAddress || ''
 
   const { error: dbError } = await supabase
     .from('user_profiles')
-    .update({
+    .upsert({
+      clerk_id: userId,
+      email,
       username,
       bio,
       photo_url: photoUrl,
       onboarding_completed: true,
       updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'clerk_id',
     })
-    .eq('user_id', userId)
 
   if (dbError) {
     console.error('Database error:', dbError)

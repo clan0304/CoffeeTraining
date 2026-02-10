@@ -9,22 +9,22 @@
 -- Users can only view their own profile directly
 CREATE POLICY "Users can view own profile"
   ON public.user_profiles FOR SELECT
-  USING (auth.jwt()->>'sub' = user_id);
+  USING (auth.jwt()->>'sub' = clerk_id);
 
 -- Users can insert their own profile
 CREATE POLICY "Users can insert own profile"
   ON public.user_profiles FOR INSERT
-  WITH CHECK (auth.jwt()->>'sub' = user_id);
+  WITH CHECK (auth.jwt()->>'sub' = clerk_id);
 
 -- Users can update their own profile
 CREATE POLICY "Users can update own profile"
   ON public.user_profiles FOR UPDATE
-  USING (auth.jwt()->>'sub' = user_id);
+  USING (auth.jwt()->>'sub' = clerk_id);
 
 -- Users can delete their own profile
 CREATE POLICY "Users can delete own profile"
   ON public.user_profiles FOR DELETE
-  USING (auth.jwt()->>'sub' = user_id);
+  USING (auth.jwt()->>'sub' = clerk_id);
 
 -- Service role has full access (for webhooks)
 CREATE POLICY "Service role full access"
@@ -39,16 +39,16 @@ CREATE POLICY "Service role full access"
 CREATE OR REPLACE VIEW public.public_profiles AS
 SELECT
   id,
-  user_id,
+  clerk_id,
   CASE
-    WHEN auth.jwt()->>'sub' = user_id THEN email
+    WHEN auth.jwt()->>'sub' = clerk_id THEN email
     ELSE NULL
   END AS email,
   username,
   bio,
   photo_url,
   CASE
-    WHEN auth.jwt()->>'sub' = user_id THEN onboarding_completed
+    WHEN auth.jwt()->>'sub' = clerk_id THEN onboarding_completed
     ELSE NULL
   END AS onboarding_completed,
   created_at,

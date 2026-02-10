@@ -9,7 +9,7 @@
 CREATE TABLE public.room_players (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL,  -- Clerk user ID
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
 
   -- Ensure unique player per room
