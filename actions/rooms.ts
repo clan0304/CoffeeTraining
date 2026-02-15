@@ -3,7 +3,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { createAdminSupabaseClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
-import type { Room, RoomInvitation, RoomPlayer, PublicProfile, RoomCoffee, RoomSet, RoomSetRow, RoundResult } from '@/types/database'
+import type { Room, RoomInvitation, RoomPlayer, PublicProfile, RoomCoffee, RoomSet, RoomSetRow, RoundResult, GameSession, SessionRound, PlayerDashboardData, DashboardOverallStats, DashboardAccuracyPoint, DashboardCoffeeStat, DashboardSessionHistory } from '@/types/database'
 
 // =============================================
 // HELPER: Resolve Clerk auth to user_profiles UUID
@@ -367,6 +367,8 @@ export async function getRoomDetails(roomId: string): Promise<{
     sets: Array<RoomSet & { rows: Array<RoomSetRow & { pair_coffee: RoomCoffee; odd_coffee: RoomCoffee }> }>
   }
   currentUserProfileId?: string
+  activeSessionId?: string | null
+  completedRoundsCount?: number
   error?: string
 }> {
   const profile = await getProfileId()
@@ -462,6 +464,28 @@ export async function getRoomDetails(roomId: string): Promise<{
     invited_profile: profileMap.get(i.invited_user_id) || null,
   })) || []
 
+  // Get active game session info
+  let activeSessionId: string | null = null
+  let completedRoundsCount = 0
+
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (activeSession) {
+    activeSessionId = activeSession.id
+    const { count } = await supabase
+      .from('session_rounds')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', activeSession.id)
+      .not('ended_at', 'is', null)
+
+    completedRoundsCount = count || 0
+  }
+
   return {
     room: {
       ...room,
@@ -471,6 +495,8 @@ export async function getRoomDetails(roomId: string): Promise<{
       sets: setsWithRows,
     },
     currentUserProfileId: profileId,
+    activeSessionId,
+    completedRoundsCount,
   }
 }
 
@@ -1177,7 +1203,7 @@ export async function deleteSet(
 export async function startGame(
   roomId: string,
   setId: string
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<{ success?: boolean; sessionRoundId?: string; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
   const { profileId } = profile
@@ -1215,6 +1241,62 @@ export async function startGame(
     return { error: 'Set not found' }
   }
 
+  // Get or create active game session
+  let { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (!activeSession) {
+    const { data: newSession, error: sessionError } = await supabase
+      .from('game_sessions')
+      .insert({ room_id: roomId })
+      .select('id')
+      .single<{ id: string }>()
+
+    if (sessionError || !newSession) {
+      console.error('Error creating session:', sessionError)
+      return { error: 'Failed to create session' }
+    }
+    activeSession = newSession
+  }
+
+  // Count existing rounds in this session to determine round_number
+  const { count: roundCount } = await supabase
+    .from('session_rounds')
+    .select('*', { count: 'exact', head: true })
+    .eq('session_id', activeSession.id)
+
+  // Create session round
+  const { data: sessionRound, error: roundError } = await supabase
+    .from('session_rounds')
+    .insert({
+      session_id: activeSession.id,
+      round_number: (roundCount || 0) + 1,
+      set_id: setId,
+    })
+    .select('id')
+    .single<{ id: string }>()
+
+  if (roundError || !sessionRound) {
+    console.error('Error creating session round:', roundError)
+    return { error: 'Failed to create session round' }
+  }
+
+  // Snapshot current room players as round participants
+  const { data: players } = await supabase
+    .from('room_players')
+    .select('user_id')
+    .eq('room_id', roomId)
+
+  if (players && players.length > 0) {
+    await supabase
+      .from('round_participants')
+      .insert(players.map((p) => ({ round_id: sessionRound.id, user_id: p.user_id })))
+  }
+
   // Set status to countdown with active set
   const { error } = await supabase
     .from('rooms')
@@ -1230,7 +1312,7 @@ export async function startGame(
     return { error: 'Failed to start game' }
   }
 
-  return { success: true }
+  return { success: true, sessionRoundId: sessionRound.id }
 }
 
 // =============================================
@@ -1285,6 +1367,23 @@ export async function beginPlaying(
   if (error) {
     console.error('Error starting game:', error)
     return { error: 'Failed to start game' }
+  }
+
+  // Update the active session_round's started_at with the exact timer timestamp
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (activeSession) {
+    await supabase
+      .from('session_rounds')
+      .update({ started_at: timerStartedAt })
+      .eq('session_id', activeSession.id)
+      .is('ended_at', null)
+      .is('started_at', null)
   }
 
   return { success: true, timerStartedAt }
@@ -1430,6 +1529,23 @@ export async function endRound(
     return { success: true } // Already waiting
   }
 
+  // End the active session round
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (activeSession) {
+    await supabase
+      .from('session_rounds')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('session_id', activeSession.id)
+      .is('ended_at', null)
+      .not('started_at', 'is', null)
+  }
+
   const { error } = await supabase
     .from('rooms')
     .update({
@@ -1454,7 +1570,8 @@ export async function endRound(
 // =============================================
 
 export async function finishRound(
-  roomId: string
+  roomId: string,
+  answers?: (number | null)[]
 ): Promise<{ elapsedMs?: number; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
@@ -1516,6 +1633,29 @@ export async function finishRound(
 
   const finishedAt = new Date().toISOString()
 
+  // Find the active session round for this room
+  let sessionRoundId: string | null = null
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (activeSession) {
+    const { data: activeRound } = await supabase
+      .from('session_rounds')
+      .select('id')
+      .eq('session_id', activeSession.id)
+      .is('ended_at', null)
+      .not('started_at', 'is', null)
+      .maybeSingle<{ id: string }>()
+
+    if (activeRound) {
+      sessionRoundId = activeRound.id
+    }
+  }
+
   const { error } = await supabase
     .from('round_results')
     .insert({
@@ -1524,11 +1664,61 @@ export async function finishRound(
       timer_started_at: room.timer_started_at,
       finished_at: finishedAt,
       elapsed_ms: Math.max(0, Math.round(elapsedMs)),
+      session_round_id: sessionRoundId,
     })
 
   if (error) {
     console.error('Error recording finish:', error)
     return { error: 'Failed to record finish time' }
+  }
+
+  // Save player answers if provided
+  if (answers && answers.length > 0 && sessionRoundId) {
+    // Get the room's active set to look up correct answers
+    const { data: roomData } = await supabase
+      .from('rooms')
+      .select('active_set_id')
+      .eq('id', roomId)
+      .single<{ active_set_id: string | null }>()
+
+    if (roomData?.active_set_id) {
+      const { data: setRows } = await supabase
+        .from('room_set_rows')
+        .select('row_number, odd_position')
+        .eq('set_id', roomData.active_set_id)
+        .order('row_number', { ascending: true })
+
+      if (setRows) {
+        const oddPositionMap = new Map(setRows.map((r) => [r.row_number, r.odd_position]))
+
+        const answerInserts = answers
+          .map((selectedPosition, index) => {
+            if (selectedPosition === null) return null
+            const rowNumber = index + 1
+            const correctPosition = oddPositionMap.get(rowNumber)
+            return {
+              set_id: roomData.active_set_id!,
+              session_round_id: sessionRoundId,
+              user_id: profileId,
+              row_number: rowNumber,
+              selected_position: selectedPosition,
+              is_correct: correctPosition !== undefined ? selectedPosition === correctPosition : null,
+            }
+          })
+          .filter((a): a is NonNullable<typeof a> => a !== null)
+
+        if (answerInserts.length > 0) {
+          const { error: answerError } = await supabase
+            .from('player_answers')
+            .upsert(answerInserts, { onConflict: 'session_round_id,user_id,row_number' })
+
+          if (answerError) {
+            console.error('Error saving answers:', answerError)
+            // Non-fatal — finish time is already recorded
+          }
+        }
+      }
+    }
   }
 
   return { elapsedMs: Math.max(0, Math.round(elapsedMs)) }
@@ -1573,4 +1763,647 @@ export async function cancelInvitation(
   }
 
   return { success: true }
+}
+
+// =============================================
+// END SESSION (host only) — end the active game session
+// =============================================
+
+export async function endSession(
+  roomId: string
+): Promise<{ sessionId?: string; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Verify the user is the host
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id')
+    .eq('id', roomId)
+    .single<{ host_id: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id !== profileId) {
+    return { error: 'Only the host can end the session' }
+  }
+
+  // Find active session
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (!activeSession) {
+    return { error: 'No active session' }
+  }
+
+  // End any still-open session rounds
+  await supabase
+    .from('session_rounds')
+    .update({ ended_at: new Date().toISOString() })
+    .eq('session_id', activeSession.id)
+    .is('ended_at', null)
+
+  // End the session
+  const { error } = await supabase
+    .from('game_sessions')
+    .update({ ended_at: new Date().toISOString() })
+    .eq('id', activeSession.id)
+
+  if (error) {
+    console.error('Error ending session:', error)
+    return { error: 'Failed to end session' }
+  }
+
+  return { sessionId: activeSession.id }
+}
+
+// =============================================
+// GET SESSION SUMMARY
+// =============================================
+
+export async function getSessionSummary(sessionId: string): Promise<{
+  session?: GameSession & {
+    room: { id: string; name: string | null; code: string }
+    rounds: Array<SessionRound & {
+      participants: Array<{ user_id: string; username: string | null; photo_url: string | null }>
+      results: Array<{ user_id: string; elapsed_ms: number }>
+      coffees: Array<{ label: string; name: string }>
+      setRows: Array<{ row_number: number; pair_coffee_label: string; pair_coffee_name: string; odd_coffee_label: string; odd_coffee_name: string; odd_position: number }>
+      playerAnswers: Array<{ user_id: string; row_number: number; selected_position: number; is_correct: boolean | null }>
+    }>
+  }
+  error?: string
+}> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const supabase = createAdminSupabaseClient()
+
+  // Get the session
+  const { data: session } = await supabase
+    .from('game_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .single<GameSession>()
+
+  if (!session) {
+    return { error: 'Session not found' }
+  }
+
+  // Get the room
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, name, code')
+    .eq('id', session.room_id)
+    .single<{ id: string; name: string | null; code: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  // Get session rounds
+  const { data: rounds } = await supabase
+    .from('session_rounds')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('round_number', { ascending: true })
+
+  if (!rounds || rounds.length === 0) {
+    return {
+      session: {
+        ...session,
+        room,
+        rounds: [],
+      },
+    }
+  }
+
+  const roundIds = rounds.map((r) => r.id)
+
+  // Get all participants for these rounds
+  const { data: participants } = await supabase
+    .from('round_participants')
+    .select('round_id, user_id')
+    .in('round_id', roundIds)
+
+  // Get all round results for these rounds
+  const { data: results } = await supabase
+    .from('round_results')
+    .select('session_round_id, user_id, elapsed_ms')
+    .in('session_round_id', roundIds)
+
+  // Get user profiles
+  const allUserIds = [
+    ...new Set([
+      ...(participants?.map((p) => p.user_id) || []),
+      ...(results?.map((r) => r.user_id) || []),
+    ]),
+  ]
+
+  const { data: profiles } = await supabase
+    .from('user_profiles')
+    .select('id, username, photo_url')
+    .in('id', allUserIds)
+
+  const profileMap = new Map(profiles?.map((p) => [p.id, p]) || [])
+
+  // Fetch set details and player answers for rounds that have a set_id
+  const setIds = [...new Set(rounds.filter((r) => r.set_id).map((r) => r.set_id!))]
+
+  let allSetRows: Array<{ set_id: string; row_number: number; pair_coffee_id: string; odd_coffee_id: string; odd_position: number }> = []
+  let allCoffees: Array<{ id: string; room_id: string; label: string; name: string }> = []
+  let allPlayerAnswers: Array<{ session_round_id: string; user_id: string; row_number: number; selected_position: number; is_correct: boolean | null }> = []
+
+  if (setIds.length > 0) {
+    const { data: setRows } = await supabase
+      .from('room_set_rows')
+      .select('set_id, row_number, pair_coffee_id, odd_coffee_id, odd_position')
+      .in('set_id', setIds)
+      .order('row_number', { ascending: true })
+
+    allSetRows = setRows || []
+
+    // Get coffees for the room
+    const { data: coffees } = await supabase
+      .from('room_coffees')
+      .select('id, room_id, label, name')
+      .eq('room_id', session.room_id)
+      .order('label', { ascending: true })
+
+    allCoffees = coffees || []
+
+    // Get player answers for these rounds
+    const { data: playerAnswers } = await supabase
+      .from('player_answers')
+      .select('session_round_id, user_id, row_number, selected_position, is_correct')
+      .in('session_round_id', roundIds)
+
+    allPlayerAnswers = playerAnswers || []
+  }
+
+  const coffeeMap = new Map(allCoffees.map((c) => [c.id, c]))
+
+  // Assemble rounds with participants, results, and answer details
+  const roundsWithDetails = (rounds as SessionRound[]).map((round) => {
+    // Get set rows for this round's set
+    const roundSetRows = round.set_id
+      ? allSetRows
+          .filter((r) => r.set_id === round.set_id)
+          .map((r) => {
+            const pairCoffee = coffeeMap.get(r.pair_coffee_id)
+            const oddCoffee = coffeeMap.get(r.odd_coffee_id)
+            return {
+              row_number: r.row_number,
+              pair_coffee_label: pairCoffee?.label || '?',
+              pair_coffee_name: pairCoffee?.name || 'Unknown',
+              odd_coffee_label: oddCoffee?.label || '?',
+              odd_coffee_name: oddCoffee?.name || 'Unknown',
+              odd_position: r.odd_position,
+            }
+          })
+      : []
+
+    // Get unique coffees used in this round's set rows
+    const usedCoffeeIds = new Set<string>()
+    if (round.set_id) {
+      allSetRows
+        .filter((r) => r.set_id === round.set_id)
+        .forEach((r) => {
+          usedCoffeeIds.add(r.pair_coffee_id)
+          usedCoffeeIds.add(r.odd_coffee_id)
+        })
+    }
+    const roundCoffees = allCoffees
+      .filter((c) => usedCoffeeIds.has(c.id))
+      .map((c) => ({ label: c.label, name: c.name }))
+
+    return {
+      ...round,
+      participants: (participants || [])
+        .filter((p) => p.round_id === round.id)
+        .map((p) => {
+          const prof = profileMap.get(p.user_id)
+          return {
+            user_id: p.user_id,
+            username: prof?.username || null,
+            photo_url: prof?.photo_url || null,
+          }
+        }),
+      results: (results || [])
+        .filter((r) => r.session_round_id === round.id)
+        .map((r) => ({
+          user_id: r.user_id,
+          elapsed_ms: r.elapsed_ms,
+        })),
+      coffees: roundCoffees,
+      setRows: roundSetRows,
+      playerAnswers: allPlayerAnswers
+        .filter((a) => a.session_round_id === round.id)
+        .map((a) => ({
+          user_id: a.user_id,
+          row_number: a.row_number,
+          selected_position: a.selected_position,
+          is_correct: a.is_correct,
+        })),
+    }
+  })
+
+  return {
+    session: {
+      ...session,
+      room,
+      rounds: roundsWithDetails,
+    },
+  }
+}
+
+// =============================================
+// GET MY SESSION HISTORY
+// =============================================
+
+export async function getMySessionHistory(): Promise<{
+  sessions?: Array<{
+    id: string
+    room_name: string | null
+    room_code: string
+    started_at: string
+    ended_at: string
+    round_count: number
+    best_time_ms: number | null
+  }>
+  error?: string
+}> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Find all session rounds where the user was a participant
+  const { data: participations } = await supabase
+    .from('round_participants')
+    .select('round_id')
+    .eq('user_id', profileId)
+
+  if (!participations || participations.length === 0) {
+    return { sessions: [] }
+  }
+
+  const roundIds = participations.map((p) => p.round_id)
+
+  // Get the session_rounds to find session_ids
+  const { data: sessionRounds } = await supabase
+    .from('session_rounds')
+    .select('id, session_id')
+    .in('id', roundIds)
+
+  if (!sessionRounds || sessionRounds.length === 0) {
+    return { sessions: [] }
+  }
+
+  const sessionIds = [...new Set(sessionRounds.map((r) => r.session_id))]
+
+  // Get completed sessions
+  const { data: sessions } = await supabase
+    .from('game_sessions')
+    .select('*')
+    .in('id', sessionIds)
+    .not('ended_at', 'is', null)
+    .order('started_at', { ascending: false })
+
+  if (!sessions || sessions.length === 0) {
+    return { sessions: [] }
+  }
+
+  // Get rooms for these sessions
+  const roomIds = [...new Set(sessions.map((s) => s.room_id))]
+  const { data: rooms } = await supabase
+    .from('rooms')
+    .select('id, name, code')
+    .in('id', roomIds)
+
+  const roomMap = new Map(rooms?.map((r) => [r.id, r]) || [])
+
+  // Get all rounds for these sessions to count them
+  const { data: allRounds } = await supabase
+    .from('session_rounds')
+    .select('id, session_id')
+    .in('session_id', sessionIds)
+
+  // Get user's results for these rounds
+  const allRoundIds = allRounds?.map((r) => r.id) || []
+  const { data: userResults } = await supabase
+    .from('round_results')
+    .select('session_round_id, elapsed_ms')
+    .eq('user_id', profileId)
+    .in('session_round_id', allRoundIds)
+
+  // Build session summaries
+  const result = (sessions as GameSession[]).map((session) => {
+    const room = roomMap.get(session.room_id)
+    const roundsInSession = allRounds?.filter((r) => r.session_id === session.id) || []
+    const roundIdsInSession = roundsInSession.map((r) => r.id)
+    const userResultsInSession = userResults?.filter(
+      (r) => r.session_round_id && roundIdsInSession.includes(r.session_round_id)
+    ) || []
+    const bestTime = userResultsInSession.length > 0
+      ? Math.min(...userResultsInSession.map((r) => r.elapsed_ms))
+      : null
+
+    return {
+      id: session.id,
+      room_name: room?.name || null,
+      room_code: room?.code || '',
+      started_at: session.started_at,
+      ended_at: session.ended_at!,
+      round_count: roundsInSession.length,
+      best_time_ms: bestTime,
+    }
+  })
+
+  return { sessions: result }
+}
+
+// =============================================
+// GET PLAYER DASHBOARD
+// =============================================
+
+export async function getPlayerDashboard(): Promise<{
+  data?: PlayerDashboardData
+  error?: string
+}> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Step 1: Fetch user's answers, results, and participations in parallel
+  const [answersRes, resultsRes, participationsRes] = await Promise.all([
+    supabase
+      .from('player_answers')
+      .select('id, set_id, row_number, selected_position, is_correct, session_round_id')
+      .eq('user_id', profileId),
+    supabase
+      .from('round_results')
+      .select('id, room_id, elapsed_ms, session_round_id')
+      .eq('user_id', profileId),
+    supabase
+      .from('round_participants')
+      .select('round_id')
+      .eq('user_id', profileId),
+  ])
+
+  const answers = answersRes.data || []
+  const results = resultsRes.data || []
+  const participations = participationsRes.data || []
+
+  // If no data at all, return empty dashboard
+  if (answers.length === 0 && results.length === 0 && participations.length === 0) {
+    return {
+      data: {
+        overallStats: {
+          totalSessions: 0, totalRounds: 0, totalAnswers: 0,
+          correctAnswers: 0, overallAccuracy: 0,
+          bestTimeMs: null, avgTimeMs: null,
+        },
+        accuracyTrend: [],
+        coffeeStats: [],
+        sessionHistory: [],
+      },
+    }
+  }
+
+  // Step 2: Fetch session_rounds and room_set_rows in parallel
+  const roundIds = [...new Set(participations.map((p) => p.round_id))]
+  const setIds = [...new Set(answers.map((a) => a.set_id))]
+
+  const [roundsRes, setRowsRes] = await Promise.all([
+    roundIds.length > 0
+      ? supabase
+          .from('session_rounds')
+          .select('id, session_id, round_number, set_id, started_at')
+          .in('id', roundIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; session_id: string; round_number: number; set_id: string | null; started_at: string | null }> }),
+    setIds.length > 0
+      ? supabase
+          .from('room_set_rows')
+          .select('id, set_id, row_number, pair_coffee_id, odd_coffee_id')
+          .in('set_id', setIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; set_id: string; row_number: number; pair_coffee_id: string; odd_coffee_id: string }> }),
+  ])
+
+  const sessionRounds = (roundsRes.data || []) as Array<{ id: string; session_id: string; round_number: number; set_id: string | null; started_at: string | null }>
+  const setRows = (setRowsRes.data || []) as Array<{ id: string; set_id: string; row_number: number; pair_coffee_id: string; odd_coffee_id: string }>
+
+  // Step 3: Fetch game_sessions and room_coffees in parallel
+  const sessionIds = [...new Set(sessionRounds.map((r) => r.session_id))]
+  const coffeeIds = new Set<string>()
+  for (const row of setRows) {
+    coffeeIds.add(row.pair_coffee_id)
+    coffeeIds.add(row.odd_coffee_id)
+  }
+  const coffeeIdArray = [...coffeeIds]
+
+  const [sessionsRes, coffeesRes] = await Promise.all([
+    sessionIds.length > 0
+      ? supabase
+          .from('game_sessions')
+          .select('id, room_id, started_at, ended_at')
+          .in('id', sessionIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; room_id: string; started_at: string; ended_at: string | null }> }),
+    coffeeIdArray.length > 0
+      ? supabase
+          .from('room_coffees')
+          .select('id, label, name')
+          .in('id', coffeeIdArray)
+      : Promise.resolve({ data: [] as Array<{ id: string; label: string; name: string }> }),
+  ])
+
+  const sessions = (sessionsRes.data || []) as Array<{ id: string; room_id: string; started_at: string; ended_at: string | null }>
+  const coffees = (coffeesRes.data || []) as Array<{ id: string; label: string; name: string }>
+
+  // Step 4: Fetch rooms
+  const roomIds = [...new Set(sessions.map((s) => s.room_id))]
+  let rooms: Array<{ id: string; name: string | null; code: string }> = []
+  if (roomIds.length > 0) {
+    const roomsRes = await supabase
+      .from('rooms')
+      .select('id, name, code')
+      .in('id', roomIds)
+    rooms = (roomsRes.data || []) as Array<{ id: string; name: string | null; code: string }>
+  }
+
+  // Build lookup maps
+  const coffeeMap = new Map(coffees.map((c) => [c.id, c]))
+  const sessionMap = new Map(sessions.map((s) => [s.id, s]))
+  const roomMap = new Map(rooms.map((r) => [r.id, r]))
+  const roundMap = new Map(sessionRounds.map((r) => [r.id, r]))
+
+  // ---- Compute Overall Stats ----
+  const totalAnswers = answers.length
+  const correctAnswers = answers.filter((a) => a.is_correct === true).length
+  const overallAccuracy = totalAnswers > 0 ? Math.round((correctAnswers / totalAnswers) * 100) : 0
+  const completedSessions = sessions.filter((s) => s.ended_at !== null)
+  const bestTimeMs = results.length > 0 ? Math.min(...results.map((r) => r.elapsed_ms)) : null
+  const avgTimeMs = results.length > 0
+    ? Math.round(results.reduce((sum, r) => sum + r.elapsed_ms, 0) / results.length)
+    : null
+
+  const overallStats: DashboardOverallStats = {
+    totalSessions: completedSessions.length,
+    totalRounds: roundIds.length,
+    totalAnswers,
+    correctAnswers,
+    overallAccuracy,
+    bestTimeMs,
+    avgTimeMs,
+  }
+
+  // ---- Compute Accuracy Trend (last 20 rounds) ----
+  // Group answers by session_round_id
+  const answersByRound = new Map<string, typeof answers>()
+  for (const a of answers) {
+    if (!a.session_round_id) continue
+    const arr = answersByRound.get(a.session_round_id) || []
+    arr.push(a)
+    answersByRound.set(a.session_round_id, arr)
+  }
+
+  const accuracyPoints: DashboardAccuracyPoint[] = []
+  for (const [roundId, roundAnswers] of answersByRound) {
+    const round = roundMap.get(roundId)
+    if (!round) continue
+    const session = sessionMap.get(round.session_id)
+    if (!session) continue
+
+    const total = roundAnswers.length
+    const correct = roundAnswers.filter((a) => a.is_correct === true).length
+    accuracyPoints.push({
+      roundId,
+      roundNumber: round.round_number,
+      sessionStartedAt: session.started_at,
+      correct,
+      total,
+      accuracy: total > 0 ? Math.round((correct / total) * 100) : 0,
+    })
+  }
+
+  // Sort chronologically and take last 20
+  accuracyPoints.sort((a, b) => a.sessionStartedAt.localeCompare(b.sessionStartedAt))
+  const accuracyTrend = accuracyPoints.slice(-20)
+
+  // ---- Compute Per-Coffee Stats ----
+  // For each answer, look up the set_row to find which coffee was the odd one
+  const setRowsBySetAndRow = new Map<string, typeof setRows[0]>()
+  for (const row of setRows) {
+    setRowsBySetAndRow.set(`${row.set_id}:${row.row_number}`, row)
+  }
+
+  const coffeeStatsMap = new Map<string, {
+    coffeeId: string; coffeeName: string; coffeeLabel: string
+    timesSeenAsOdd: number; correctWhenOdd: number; timesSeenAsPair: number
+  }>()
+
+  for (const a of answers) {
+    const setRow = setRowsBySetAndRow.get(`${a.set_id}:${a.row_number}`)
+    if (!setRow) continue
+
+    const oddCoffee = coffeeMap.get(setRow.odd_coffee_id)
+    const pairCoffee = coffeeMap.get(setRow.pair_coffee_id)
+
+    // Track odd coffee
+    if (oddCoffee) {
+      const existing = coffeeStatsMap.get(oddCoffee.id) || {
+        coffeeId: oddCoffee.id, coffeeName: oddCoffee.name, coffeeLabel: oddCoffee.label,
+        timesSeenAsOdd: 0, correctWhenOdd: 0, timesSeenAsPair: 0,
+      }
+      existing.timesSeenAsOdd++
+      if (a.is_correct === true) existing.correctWhenOdd++
+      coffeeStatsMap.set(oddCoffee.id, existing)
+    }
+
+    // Track pair coffee
+    if (pairCoffee) {
+      const existing = coffeeStatsMap.get(pairCoffee.id) || {
+        coffeeId: pairCoffee.id, coffeeName: pairCoffee.name, coffeeLabel: pairCoffee.label,
+        timesSeenAsOdd: 0, correctWhenOdd: 0, timesSeenAsPair: 0,
+      }
+      existing.timesSeenAsPair++
+      coffeeStatsMap.set(pairCoffee.id, existing)
+    }
+  }
+
+  const coffeeStats: DashboardCoffeeStat[] = [...coffeeStatsMap.values()].map((c) => ({
+    ...c,
+    accuracyWhenOdd: c.timesSeenAsOdd > 0 ? Math.round((c.correctWhenOdd / c.timesSeenAsOdd) * 100) : 0,
+  }))
+
+  // ---- Compute Session History (with accuracy) ----
+  // Group rounds by session
+  const roundsBySession = new Map<string, typeof sessionRounds>()
+  for (const r of sessionRounds) {
+    const arr = roundsBySession.get(r.session_id) || []
+    arr.push(r)
+    roundsBySession.set(r.session_id, arr)
+  }
+
+  // Group results by session_round_id
+  const resultsByRound = new Map<string, typeof results>()
+  for (const r of results) {
+    if (!r.session_round_id) continue
+    const arr = resultsByRound.get(r.session_round_id) || []
+    arr.push(r)
+    resultsByRound.set(r.session_round_id, arr)
+  }
+
+  const sessionHistory: DashboardSessionHistory[] = completedSessions.map((session) => {
+    const room = roomMap.get(session.room_id)
+    const rounds = roundsBySession.get(session.id) || []
+    const roundIdsInSession = rounds.map((r) => r.id)
+
+    // Accuracy for this session: all answers in these rounds
+    let sessionCorrect = 0
+    let sessionTotal = 0
+    for (const rId of roundIdsInSession) {
+      const roundAnswers = answersByRound.get(rId) || []
+      sessionTotal += roundAnswers.length
+      sessionCorrect += roundAnswers.filter((a) => a.is_correct === true).length
+    }
+
+    // Best time for this session
+    const sessionResults = roundIdsInSession.flatMap((rId) => resultsByRound.get(rId) || [])
+    const bestTime = sessionResults.length > 0
+      ? Math.min(...sessionResults.map((r) => r.elapsed_ms))
+      : null
+
+    return {
+      id: session.id,
+      room_name: room?.name || null,
+      room_code: room?.code || '',
+      started_at: session.started_at,
+      ended_at: session.ended_at!,
+      round_count: rounds.length,
+      best_time_ms: bestTime,
+      accuracy: sessionTotal > 0 ? Math.round((sessionCorrect / sessionTotal) * 100) : null,
+    }
+  }).sort((a, b) => b.started_at.localeCompare(a.started_at))
+
+  return {
+    data: {
+      overallStats,
+      accuracyTrend,
+      coffeeStats,
+      sessionHistory,
+    },
+  }
 }

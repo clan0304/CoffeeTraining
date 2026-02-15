@@ -66,7 +66,10 @@ export function InvitationsList() {
         // Find the invitation to get the room ID
         const invitation = invitations.find((i) => i.id === invitationId)
         if (invitation) {
-          router.push(`/rooms/${invitation.room_id}`)
+          const path = invitation.room.type === 'cupping'
+            ? `/cupping/${invitation.room_id}`
+            : `/rooms/${invitation.room_id}`
+          router.push(path)
           return
         }
       }

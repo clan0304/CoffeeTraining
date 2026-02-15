@@ -124,3 +124,85 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Score slider — range input */
+.score-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: grab;
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--fill, 0%),
+    var(--muted) var(--fill, 0%)
+  );
+}
+.score-slider:active {
+  cursor: grabbing;
+}
+.score-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--background);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+  cursor: grab;
+  transition: transform 0.15s ease;
+}
+.score-slider:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  cursor: grabbing;
+}
+.score-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--background);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+  cursor: grab;
+}
+.score-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted);
+}
+.score-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--primary);
+}
+.score-slider:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.score-slider:disabled::-webkit-slider-thumb,
+.score-slider:disabled::-moz-range-thumb {
+  cursor: default;
+}
+/* Thinner variant for sub-fields */
+.score-slider-sm {
+  height: 4px;
+}
+.score-slider-sm::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+.score-slider-sm::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+.score-slider-sm::-moz-range-track {
+  height: 4px;
+}
+.score-slider-sm::-moz-range-progress {
+  height: 4px;
+}

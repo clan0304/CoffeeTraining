@@ -23,6 +23,7 @@ import {
   resumeGame,
   finishRound,
   endRound,
+  endSession,
   addCoffee,
   removeCoffee,
   generateTriangulationSet,
@@ -79,6 +80,9 @@ export default function RoomPage() {
   const [finishedPlayers, setFinishedPlayers] = useState<Array<{ userId: string; username: string; elapsedMs: number }>>([])
   const [myElapsedMs, setMyElapsedMs] = useState<number | null>(null)
   const [finishLoading, setFinishLoading] = useState(false)
+  const [endingSession, setEndingSession] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [completedRoundsCount, setCompletedRoundsCount] = useState(0)
 
   const loadRoom = useCallback(async () => {
     const result = await getRoomDetails(roomId)
@@ -89,6 +93,8 @@ export default function RoomPage() {
       if (result.currentUserProfileId) {
         setCurrentUserProfileId(result.currentUserProfileId)
       }
+      setActiveSessionId(result.activeSessionId ?? null)
+      setCompletedRoundsCount(result.completedRoundsCount ?? 0)
     }
     setLoading(false)
   }, [roomId])
@@ -113,13 +119,23 @@ export default function RoomPage() {
   useEffect(() => {
     if (!roomId) return
 
-    console.log('[Realtime] Setting up channel for room:', roomId)
+    let cancelled = false
+    let currentChannel: ReturnType<typeof realtime.channel> | null = null
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let retryCount = 0
+    const MAX_RETRIES = 5
 
-    const channel = realtime.channel(`room_sync_${roomId}`, {
-      config: {
-        broadcast: { self: true },
-      },
-    })
+    const setupChannel = () => {
+      if (cancelled) return
+
+      console.log('[Realtime] Setting up channel for room:', roomId, retryCount > 0 ? `(retry ${retryCount})` : '')
+
+      const channel = realtime.channel(`room_sync_${roomId}`, {
+        config: {
+          broadcast: { self: true },
+        },
+      })
+      currentChannel = channel
 
       // Listen for game events via broadcast (instant, no RLS needed)
       channel.on('broadcast', { event: 'game_start' }, (payload) => {
@@ -191,6 +207,12 @@ export default function RoomPage() {
         }
       })
 
+      channel.on('broadcast', { event: 'session_ended' }, (payload) => {
+        console.log('[Realtime] Received session_ended broadcast:', payload)
+        const { sessionId } = payload.payload as { sessionId: string }
+        router.push(`/sessions/${sessionId}`)
+      })
+
       channel.on('broadcast', { event: 'room_updated' }, async (payload) => {
         console.log('[Realtime] Received room_updated broadcast:', payload)
         const result = await getRoomDetails(roomId)
@@ -199,22 +221,41 @@ export default function RoomPage() {
         }
       })
 
-    channel.subscribe((status, err) => {
-      console.log('[Realtime] Channel status:', status, err ? `Error: ${err.message}` : '')
-      if (status === 'SUBSCRIBED') {
-        console.log('[Realtime] Channel subscribed successfully!')
-        setRoomChannel(channel)
-        setChannelReady(true)
-      } else if (status === 'CHANNEL_ERROR') {
-        console.error('[Realtime] Channel error:', err)
-      } else if (status === 'TIMED_OUT') {
-        console.error('[Realtime] Channel timed out')
-      }
-    })
+      channel.subscribe((status, err) => {
+        console.log('[Realtime] Channel status:', status, err ? `Error: ${err.message}` : '')
+        if (status === 'SUBSCRIBED') {
+          console.log('[Realtime] Channel subscribed successfully!')
+          retryCount = 0
+          setRoomChannel(channel)
+          setChannelReady(true)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`[Realtime] Channel ${status}:`, err?.message)
+          setRoomChannel(null)
+          setChannelReady(false)
+
+          // Clean up failed channel and retry with backoff
+          realtime.removeChannel(channel)
+          currentChannel = null
+
+          if (!cancelled && retryCount < MAX_RETRIES) {
+            const delay = Math.min(1000 * Math.pow(2, retryCount), 15000)
+            console.log(`[Realtime] Retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`)
+            retryCount++
+            retryTimeout = setTimeout(setupChannel, delay)
+          } else if (retryCount >= MAX_RETRIES) {
+            console.error('[Realtime] Max retries reached, giving up')
+          }
+        }
+      })
+    }
+
+    setupChannel()
 
     return () => {
       console.log('[Realtime] Cleaning up channel')
-      realtime.removeChannel(channel)
+      cancelled = true
+      if (retryTimeout) clearTimeout(retryTimeout)
+      if (currentChannel) realtime.removeChannel(currentChannel)
       setRoomChannel(null)
       setChannelReady(false)
     }
@@ -391,9 +432,24 @@ export default function RoomPage() {
     }
 
     setFinishLoading(true)
-    const result = await finishRound(roomId)
+    const result = await finishRound(roomId, answers)
     if (result.error) {
       console.error('Finish error:', result.error)
+      // If the game is no longer in progress (e.g. host ended round while
+      // our realtime channel was disconnected), resync room state
+      if (result.error === 'Game is not in progress') {
+        setFinishLoading(false)
+        setGamePhase('playing')
+        setAnswers(Array(8).fill(null))
+        setCorrectAnswers(Array(8).fill(null))
+        setFinishedPlayers([])
+        setMyElapsedMs(null)
+        setIsPaused(false)
+        setShowCountdown(false)
+        setWaitingForTimer(false)
+        await loadRoom()
+        return
+      }
     } else if (result.elapsedMs !== undefined) {
       setMyElapsedMs(result.elapsedMs)
       // Broadcast to all players
@@ -451,6 +507,26 @@ export default function RoomPage() {
     })
 
     loadRoom()
+  }
+
+  const handleEndSession = async () => {
+    setEndingSession(true)
+    const result = await endSession(roomId)
+    if (result.error) {
+      console.error('End session error:', result.error)
+      setEndingSession(false)
+      return
+    }
+
+    // Broadcast to all players
+    roomChannel?.send({
+      type: 'broadcast',
+      event: 'session_ended',
+      payload: { sessionId: result.sessionId },
+    })
+
+    // Navigate host to summary page
+    router.push(`/sessions/${result.sessionId}`)
   }
 
   // Helper to broadcast room updates
@@ -1066,6 +1142,17 @@ export default function RoomPage() {
                 </p>
               )}
             </>
+          )}
+
+          {isHost && completedRoundsCount > 0 && room.status === 'waiting' && (
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={handleEndSession}
+              disabled={endingSession}
+            >
+              {endingSession ? 'Ending Session...' : `End Session (${completedRoundsCount} round${completedRoundsCount === 1 ? '' : 's'})`}
+            </Button>
           )}
 
           {isHost && (
