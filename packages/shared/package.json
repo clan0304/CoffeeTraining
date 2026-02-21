@@ -1,0 +1,10 @@
+{
+  "name": "@cuppingtraining/shared",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./types": "./src/types/database.ts",
+    "./cupping": "./src/cupping/index.ts",
+    "./constants": "./src/constants/broadcast.ts"
+  }
+}
