@@ -176,36 +176,47 @@ export default function SoloPage() {
           </Button>
 
           {submitWarning && (
-            <Card className="border-orange-400 bg-orange-50">
-              <CardContent className="pt-4">
-                <p className="text-sm font-medium text-orange-700 mb-2">
-                  You haven&apos;t answered all rows. Missing:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {answers.map((a, i) =>
-                    a === null ? (
-                      <span
-                        key={i}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange-200 text-orange-800 text-sm font-semibold"
-                      >
-                        {i + 1}
-                      </span>
-                    ) : null
-                  )}
-                </div>
-                <Button
-                  onClick={() => {
-                    setSubmitWarning(false)
-                    setGameState('inputting')
-                  }}
-                  variant="outline"
-                  className="w-full mt-3 border-orange-400 text-orange-700 hover:bg-orange-100"
-                  size="sm"
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSubmitWarning(false)}>
+              <Card className="border-orange-400 bg-orange-50 w-[90%] max-w-sm relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setSubmitWarning(false)}
+                  className="absolute top-3 right-3 p-1 rounded-md hover:bg-orange-100 text-orange-400 hover:text-orange-600 transition-colors"
+                  aria-label="Close"
                 >
-                  Submit Anyway
-                </Button>
-              </CardContent>
-            </Card>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+                <CardContent className="pt-6 pb-4">
+                  <p className="text-sm font-medium text-orange-700 mb-3">
+                    You haven&apos;t answered all rows. Missing:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {answers.map((a, i) =>
+                      a === null ? (
+                        <span
+                          key={i}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange-200 text-orange-800 text-sm font-semibold"
+                        >
+                          {i + 1}
+                        </span>
+                      ) : null
+                    )}
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setSubmitWarning(false)
+                      setGameState('inputting')
+                    }}
+                    variant="outline"
+                    className="w-full mt-4 border-orange-400 text-orange-700 hover:bg-orange-100"
+                    size="sm"
+                  >
+                    Submit Anyway
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </div>

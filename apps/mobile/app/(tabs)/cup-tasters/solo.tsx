@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { View, Text, StyleSheet, ScrollView } from 'react-native'
+import { View, Text, StyleSheet, ScrollView, Modal, TouchableOpacity, Pressable } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Button } from '../../../components/ui/Button'
@@ -201,9 +201,21 @@ export default function SoloCupTastersScreen() {
             Submit Answers ({answeredCount}/8)
           </Button>
 
-          {submitWarning && (
-            <Card>
-              <CardContent style={styles.warningCard}>
+          <Modal
+            visible={submitWarning}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setSubmitWarning(false)}
+          >
+            <Pressable style={styles.modalOverlay} onPress={() => setSubmitWarning(false)}>
+              <Pressable style={styles.modalContent} onPress={() => {}}>
+                <TouchableOpacity
+                  style={styles.modalClose}
+                  onPress={() => setSubmitWarning(false)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
                 <Text style={styles.warningText}>
                   You haven't answered all rows. Missing:
                 </Text>
@@ -226,9 +238,9 @@ export default function SoloCupTastersScreen() {
                 >
                   Submit Anyway
                 </Button>
-              </CardContent>
-            </Card>
-          )}
+              </Pressable>
+            </Pressable>
+          </Modal>
         </ScrollView>
       </SafeAreaView>
     )
@@ -368,9 +380,36 @@ const styles = StyleSheet.create({
   bottomButtons: {
     gap: 8,
   },
-  warningCard: {
-    padding: 12,
-    gap: 10,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '85%',
+    backgroundColor: '#fff7ed',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.orange,
+    padding: 20,
+    paddingTop: 28,
+    gap: 12,
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    fontSize: 16,
+    color: colors.orange,
+    fontWeight: '600',
   },
   warningText: {
     fontSize: 14,
