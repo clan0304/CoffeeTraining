@@ -21,6 +21,7 @@ export default function SoloCupTastersScreen() {
   )
   const [isOvertime, setIsOvertime] = useState(false)
   const [overtimeRows, setOvertimeRows] = useState<Set<number>>(new Set())
+  const [submitWarning, setSubmitWarning] = useState(false)
 
   const handleStart = useCallback(() => {
     setAnswers(Array(8).fill(null))
@@ -39,11 +40,18 @@ export default function SoloCupTastersScreen() {
   }, [])
 
   const handleSubmitAnswers = useCallback(() => {
+    const unanswered = answers.filter((a) => a === null).length
+    if (unanswered > 0) {
+      setSubmitWarning(true)
+      return
+    }
+    setSubmitWarning(false)
     setGameState('inputting')
-  }, [])
+  }, [answers])
 
   const handleAnswerChange = useCallback(
     (rowIndex: number, position: number) => {
+      setSubmitWarning(false)
       setAnswers((prev) => {
         const newAnswers = [...prev]
         newAnswers[rowIndex] = prev[rowIndex] === position ? null : position
@@ -80,6 +88,7 @@ export default function SoloCupTastersScreen() {
     setCorrectAnswers(Array(8).fill(null))
     setIsOvertime(false)
     setOvertimeRows(new Set())
+    setSubmitWarning(false)
   }, [])
 
   const answeredCount = answers.filter((a) => a !== null).length
@@ -191,6 +200,35 @@ export default function SoloCupTastersScreen() {
           >
             Submit Answers ({answeredCount}/8)
           </Button>
+
+          {submitWarning && (
+            <Card>
+              <CardContent style={styles.warningCard}>
+                <Text style={styles.warningText}>
+                  You haven't answered all rows. Missing:
+                </Text>
+                <View style={styles.missingRows}>
+                  {answers.map((a, i) =>
+                    a === null ? (
+                      <View key={i} style={styles.missingBadge}>
+                        <Text style={styles.missingBadgeText}>{i + 1}</Text>
+                      </View>
+                    ) : null
+                  )}
+                </View>
+                <Button
+                  onPress={() => {
+                    setSubmitWarning(false)
+                    setGameState('inputting')
+                  }}
+                  variant="outline"
+                  size="sm"
+                >
+                  Submit Anyway
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </ScrollView>
       </SafeAreaView>
     )
@@ -329,5 +367,32 @@ const styles = StyleSheet.create({
   },
   bottomButtons: {
     gap: 8,
+  },
+  warningCard: {
+    padding: 12,
+    gap: 10,
+  },
+  warningText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.orange,
+  },
+  missingRows: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  missingBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.warningLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  missingBadgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
   },
 })

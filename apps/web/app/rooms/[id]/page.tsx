@@ -79,6 +79,7 @@ export default function RoomPage() {
   const [isPaused, setIsPaused] = useState(false)
   const [isOvertime, setIsOvertime] = useState(false)
   const [overtimeRows, setOvertimeRows] = useState<Set<number>>(new Set())
+  const [finishWarning, setFinishWarning] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
   const [finishedPlayers, setFinishedPlayers] = useState<Array<{ userId: string; username: string; elapsedMs: number }>>([])
   const [myElapsedMs, setMyElapsedMs] = useState<number | null>(null)
@@ -431,12 +432,19 @@ export default function RoomPage() {
     setPauseLoading(false)
   }
 
-  const handleFinish = async () => {
+  const handleFinish = async (force = false) => {
     if (myElapsedMs !== null) {
       // Already finished, just go to inputting
       setGamePhase('inputting')
       return
     }
+
+    const unanswered = answers.filter((a) => a === null).length
+    if (unanswered > 0 && !force) {
+      setFinishWarning(true)
+      return
+    }
+    setFinishWarning(false)
 
     setFinishLoading(true)
     const result = await finishRound(roomId, answers)
@@ -476,6 +484,7 @@ export default function RoomPage() {
   }
 
   const handleAnswerChange = (rowIndex: number, position: number) => {
+    setFinishWarning(false)
     setAnswers((prev) => {
       const newAnswers = [...prev]
       newAnswers[rowIndex] = prev[rowIndex] === position ? null : position
@@ -514,6 +523,7 @@ export default function RoomPage() {
     setIsPaused(false)
     setIsOvertime(false)
     setOvertimeRows(new Set())
+    setFinishWarning(false)
 
     // Broadcast to all players
     roomChannel?.send({
@@ -726,12 +736,43 @@ export default function RoomPage() {
           />
 
           <Button
-            onClick={handleFinish}
+            onClick={() => handleFinish()}
             className="w-full"
             disabled={finishLoading}
           >
             {finishLoading ? 'Finishing...' : `Finish (${answeredCount}/8)`}
           </Button>
+
+          {finishWarning && (
+            <Card className="border-orange-400 bg-orange-50">
+              <CardContent className="pt-4">
+                <p className="text-sm font-medium text-orange-700 mb-2">
+                  You haven&apos;t answered all rows. Missing:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {answers.map((a, i) =>
+                    a === null ? (
+                      <span
+                        key={i}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange-200 text-orange-800 text-sm font-semibold"
+                      >
+                        {i + 1}
+                      </span>
+                    ) : null
+                  )}
+                </div>
+                <Button
+                  onClick={() => handleFinish(true)}
+                  variant="outline"
+                  className="w-full mt-3 border-orange-400 text-orange-700 hover:bg-orange-100"
+                  size="sm"
+                  disabled={finishLoading}
+                >
+                  {finishLoading ? 'Finishing...' : 'Finish Anyway'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     )

@@ -76,6 +76,13 @@ export function SessionRoundCard({ round }: { round: RoundData }) {
         <div className="space-y-1">
           {round.participants
             .sort((a, b) => {
+              const aScore = getPlayerScore(a.user_id)
+              const bScore = getPlayerScore(b.user_id)
+              const aCorrect = aScore?.correct ?? -1
+              const bCorrect = bScore?.correct ?? -1
+              // More correct answers first
+              if (aCorrect !== bCorrect) return bCorrect - aCorrect
+              // Same score: faster time first
               const aResult = round.results.find((r) => r.user_id === a.user_id)
               const bResult = round.results.find((r) => r.user_id === b.user_id)
               if (aResult && bResult) return aResult.elapsed_ms - bResult.elapsed_ms
@@ -141,50 +148,68 @@ export function SessionRoundCard({ round }: { round: RoundData }) {
                     </div>
                   </div>
 
-                  {/* Expanded answer details */}
+                  {/* Expanded answer details — visual cup layout */}
                   {isExpanded && playerAnswers.length > 0 && (
-                    <div className="ml-9 mr-1 mb-2 mt-1 rounded bg-muted/30 border">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b text-muted-foreground">
-                            <th className="py-1.5 px-2 text-left font-medium">Row</th>
-                            <th className="py-1.5 px-2 text-left font-medium">Pair</th>
-                            <th className="py-1.5 px-2 text-left font-medium">Odd</th>
-                            <th className="py-1.5 px-2 text-center font-medium">Pick</th>
-                            <th className="py-1.5 px-2 text-center font-medium">Ans</th>
-                            <th className="py-1.5 px-2 text-center font-medium"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {round.setRows.map((row) => {
-                            const answer = playerAnswers.find((a) => a.row_number === row.row_number)
-                            return (
-                              <tr key={row.row_number} className="border-b last:border-0">
-                                <td className="py-1.5 px-2 text-muted-foreground">{row.row_number}</td>
-                                <td className="py-1.5 px-2">{row.pair_coffee_label}</td>
-                                <td className="py-1.5 px-2 font-medium text-primary">{row.odd_coffee_label}</td>
-                                <td className="py-1.5 px-2 text-center font-mono">
-                                  {answer ? answer.selected_position : '-'}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono">
-                                  {row.odd_position}
-                                </td>
-                                <td className="py-1.5 px-2 text-center">
-                                  {answer ? (
-                                    answer.is_correct ? (
-                                      <span className="text-green-600 dark:text-green-400">&#10003;</span>
-                                    ) : (
-                                      <span className="text-red-500 dark:text-red-400">&#10007;</span>
-                                    )
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                    <div className="ml-9 mr-1 mb-2 mt-1 space-y-1">
+                      {round.setRows.map((row) => {
+                        const answer = playerAnswers.find((a) => a.row_number === row.row_number)
+                        const picked = answer?.selected_position ?? null
+                        const correctPos = row.odd_position
+
+                        // Build the 3 cups: positions 1, 2, 3
+                        const cups = [1, 2, 3].map((pos) => {
+                          const isOdd = pos === correctPos
+                          const label = isOdd ? row.odd_coffee_label : row.pair_coffee_label
+                          const isPicked = pos === picked
+                          return { pos, label, isOdd, isPicked }
+                        })
+
+                        const isCorrect = answer?.is_correct === true
+                        const isWrong = answer?.is_correct === false
+                        const noAnswer = picked === null
+
+                        return (
+                          <div key={row.row_number} className="flex items-center gap-2 py-1">
+                            <span className="w-5 text-xs text-muted-foreground text-right shrink-0">
+                              {row.row_number}
+                            </span>
+                            <div className="flex gap-1 flex-1">
+                              {cups.map((cup) => {
+                                // Determine cup style
+                                let style = 'bg-muted text-muted-foreground border-transparent'
+                                if (cup.isPicked && cup.isOdd) {
+                                  // Picked correctly
+                                  style = 'bg-green-500 text-white border-green-600'
+                                } else if (cup.isPicked && !cup.isOdd) {
+                                  // Picked wrong
+                                  style = 'bg-red-500 text-white border-red-600'
+                                } else if (cup.isOdd) {
+                                  // Correct answer not picked (show where it was)
+                                  style = 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700'
+                                }
+
+                                return (
+                                  <div
+                                    key={cup.pos}
+                                    className={`flex-1 h-8 rounded border flex items-center justify-center text-xs font-bold ${style}`}
+                                  >
+                                    {cup.label}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            <span className="w-5 text-center shrink-0">
+                              {noAnswer ? (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              ) : isCorrect ? (
+                                <span className="text-xs text-green-600 dark:text-green-400">&#10003;</span>
+                              ) : isWrong ? (
+                                <span className="text-xs text-red-500 dark:text-red-400">&#10007;</span>
+                              ) : null}
+                            </span>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -196,6 +221,98 @@ export function SessionRoundCard({ round }: { round: RoundData }) {
           <p className="text-sm text-muted-foreground text-center py-2">
             No participants recorded
           </p>
+        )}
+
+        {/* Per-row accuracy report */}
+        {hasSetRows && hasAnswerData && round.participants.length > 0 && (
+          <div className="space-y-2 pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Row Breakdown</p>
+            {round.setRows.map((row) => {
+              const answersForRow = round.playerAnswers.filter((a) => a.row_number === row.row_number)
+              const correctPlayers = answersForRow.filter((a) => a.is_correct === true)
+              const wrongPlayers = answersForRow.filter((a) => a.is_correct === false)
+              const totalAnswered = answersForRow.length
+              const totalParticipants = round.participants.length
+              const correctCount = correctPlayers.length
+
+              const getUsername = (userId: string) =>
+                round.participants.find((p) => p.user_id === userId)?.username || 'Unknown'
+
+              const ratio = totalParticipants > 0 ? correctCount / totalParticipants : 0
+
+              return (
+                <div key={row.row_number} className="flex items-start gap-2 text-xs">
+                  {/* Row number */}
+                  <span className="w-5 text-right text-muted-foreground shrink-0 pt-0.5">
+                    {row.row_number}
+                  </span>
+
+                  {/* Cups preview */}
+                  <div className="flex gap-0.5 shrink-0 pt-0.5">
+                    {[1, 2, 3].map((pos) => {
+                      const isOdd = pos === row.odd_position
+                      return (
+                        <div
+                          key={pos}
+                          className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center ${
+                            isOdd
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {isOdd ? row.odd_coffee_label : row.pair_coffee_label}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Score bar + names */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold ${
+                        ratio === 1 ? 'text-green-600 dark:text-green-400'
+                          : ratio >= 0.5 ? 'text-foreground'
+                          : 'text-red-500 dark:text-red-400'
+                      }`}>
+                        {correctCount}/{totalParticipants}
+                      </span>
+                      {/* Mini bar */}
+                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            ratio === 1 ? 'bg-green-500' : ratio >= 0.5 ? 'bg-orange-400' : 'bg-red-400'
+                          }`}
+                          style={{ width: `${ratio * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    {/* Who got it right */}
+                    {correctPlayers.length > 0 && correctPlayers.length < totalParticipants && (
+                      <p className="text-muted-foreground mt-0.5 truncate">
+                        <span className="text-green-600 dark:text-green-400">&#10003;</span>{' '}
+                        {correctPlayers.map((a) => `@${getUsername(a.user_id)}`).join(', ')}
+                      </p>
+                    )}
+                    {/* Who got it wrong — only show when fewer wrong than right */}
+                    {wrongPlayers.length > 0 && wrongPlayers.length <= correctPlayers.length && correctPlayers.length < totalParticipants && (
+                      <p className="text-muted-foreground mt-0.5 truncate">
+                        <span className="text-red-500 dark:text-red-400">&#10007;</span>{' '}
+                        {wrongPlayers.map((a) => `@${getUsername(a.user_id)}`).join(', ')}
+                      </p>
+                    )}
+                    {/* Everyone got it right */}
+                    {correctCount === totalParticipants && totalParticipants > 1 && (
+                      <p className="text-green-600 dark:text-green-400 mt-0.5">Everyone correct</p>
+                    )}
+                    {/* Nobody got it right */}
+                    {correctCount === 0 && totalAnswered > 0 && (
+                      <p className="text-red-500 dark:text-red-400 mt-0.5">Nobody correct</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </CardContent>
     </Card>

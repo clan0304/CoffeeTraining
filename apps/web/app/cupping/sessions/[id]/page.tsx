@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getCuppingSessionDetail } from '@/actions/cupping'
 import { SessionDetailClient } from './session-detail-client'
+import { LocalDate } from '@/app/sessions/[id]/local-date'
 
 export default async function CuppingSessionDetailPage({
   params,
@@ -42,13 +43,10 @@ export default async function CuppingSessionDetailPage({
           </Link>
           <h1 className="text-2xl font-bold mt-2">Session Details</h1>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
-            <span>
-              {new Date(session.created_at).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </span>
+            <LocalDate
+              dateStr={session.created_at}
+              options={{ month: 'short', day: 'numeric', year: 'numeric' }}
+            />
             {(session.room_name || session.room_code) && (
               <span>
                 {session.room_name || `Room ${session.room_code}`}

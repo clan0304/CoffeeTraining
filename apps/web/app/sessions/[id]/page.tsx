@@ -5,22 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSessionSummary } from '@/actions/rooms'
 import { SessionRoundCard } from './session-round-card'
+import { LocalDate } from './local-date'
 
 function formatElapsedMs(ms: number) {
   const totalSeconds = Math.floor(ms / 1000)
   const mins = Math.floor(totalSeconds / 60)
   const secs = totalSeconds % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
 }
 
 export default async function SessionSummaryPage({
@@ -67,7 +58,7 @@ export default async function SessionSummaryPage({
           <CardContent className="pt-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Date</span>
-              <span>{formatDate(session.started_at)}</span>
+              <LocalDate dateStr={session.started_at} />
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total Rounds</span>
@@ -85,6 +76,35 @@ export default async function SessionSummaryPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Coffees used across all rounds */}
+        {(() => {
+          const allCoffees = new Map<string, { label: string; name: string }>()
+          session.rounds.forEach((round) => {
+            round.coffees.forEach((c) => {
+              if (!allCoffees.has(c.label)) allCoffees.set(c.label, c)
+            })
+          })
+          const coffees = [...allCoffees.values()].sort((a, b) => a.label.localeCompare(b.label))
+          if (coffees.length === 0) return null
+          return (
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Coffees</p>
+                <div className="space-y-1">
+                  {coffees.map((coffee) => (
+                    <div key={coffee.label} className="flex items-center gap-2 text-sm">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                        {coffee.label}
+                      </span>
+                      <span>{coffee.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })()}
 
         {/* Rounds */}
         {session.rounds.map((round) => (
@@ -107,7 +127,7 @@ export default async function SessionSummaryPage({
             <Button variant="outline" className="w-full">Back to Room</Button>
           </Link>
           <Link href="/cup-tasters" className="flex-1">
-            <Button className="w-full">Cup Tasters</Button>
+            <Button className="w-full">Go to Lobby</Button>
           </Link>
         </div>
       </div>

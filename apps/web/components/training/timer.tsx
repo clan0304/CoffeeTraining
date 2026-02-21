@@ -31,19 +31,29 @@ export function Timer({
   onTimeUpRef.current = onTimeUp
   const timeUpFiredRef = useRef(false)
 
-  // Calculate initial seconds based on startTime if provided
-  const calculateRemainingSeconds = useCallback(() => {
-    if (startTime) {
-      const startMs = new Date(startTime).getTime()
-      const nowMs = Date.now()
-      const elapsedSeconds = Math.floor((nowMs - startMs) / 1000)
-      const remaining = (initialMinutes * 60) - elapsedSeconds
-      return remaining // allow negative
-    }
-    return initialMinutes * 60
-  }, [startTime, initialMinutes])
+  // Wall-clock reference for accurate time calculation
+  const startedAtRef = useRef<number | null>(null)
+  const pauseStartRef = useRef<number | null>(null)
 
-  const [totalSeconds, setTotalSeconds] = useState(calculateRemainingSeconds)
+  const totalDuration = initialMinutes * 60
+
+  // Compute remaining seconds from wall clock
+  const computeRemaining = useCallback(() => {
+    if (!startedAtRef.current) return totalDuration
+    const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000)
+    return totalDuration - elapsed
+  }, [totalDuration])
+
+  const [totalSeconds, setTotalSeconds] = useState(() => {
+    if (startTime) {
+      startedAtRef.current = new Date(startTime).getTime()
+      const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000)
+      const remaining = totalDuration - elapsed
+      if (remaining <= 0) timeUpFiredRef.current = true
+      return remaining
+    }
+    return totalDuration
+  })
   const [isRunning, setIsRunning] = useState(!!startTime || autoStart)
   const [hasStarted, setHasStarted] = useState(!!startTime || autoStart)
 
@@ -60,8 +70,9 @@ export function Timer({
 
   // Auto-start when startTime arrives (e.g., from broadcast after mount)
   useEffect(() => {
-    if (startTime && !isRunning) {
-      const remaining = calculateRemainingSeconds()
+    if (startTime) {
+      startedAtRef.current = new Date(startTime).getTime()
+      const remaining = computeRemaining()
       setTotalSeconds(remaining)
       setIsRunning(true)
       setHasStarted(true)
@@ -69,36 +80,64 @@ export function Timer({
     }
   }, [startTime]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Timer countdown (continues past 0 into overtime)
+  // Timer tick — always compute from wall clock, never prev - 1
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
+    if (!isRunning || isPaused || !startedAtRef.current) return
 
-    if (isRunning && !isPaused) {
-      interval = setInterval(() => {
-        setTotalSeconds((prev) => {
-          const next = prev - 1
-          // Fire onTimeUp exactly once when crossing from 1 to 0
-          if (prev === 1 && !timeUpFiredRef.current) {
-            timeUpFiredRef.current = true
-            onTimeUpRef.current?.()
-          }
-          return next
-        })
-      }, 1000)
+    // Immediate sync on effect start (handles resume / visibility return)
+    const remaining = computeRemaining()
+    setTotalSeconds(remaining)
+    if (remaining <= 0 && !timeUpFiredRef.current) {
+      timeUpFiredRef.current = true
+      onTimeUpRef.current?.()
     }
+
+    const interval = setInterval(() => {
+      const r = computeRemaining()
+      setTotalSeconds(r)
+      if (r <= 0 && !timeUpFiredRef.current) {
+        timeUpFiredRef.current = true
+        onTimeUpRef.current?.()
+      }
+    }, 1000)
+
+    // Recalculate immediately when tab becomes visible again
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const r = computeRemaining()
+        setTotalSeconds(r)
+        if (r <= 0 && !timeUpFiredRef.current) {
+          timeUpFiredRef.current = true
+          onTimeUpRef.current?.()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
-      if (interval) clearInterval(interval)
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [isRunning, isPaused])
+  }, [isRunning, isPaused, computeRemaining])
 
   const handleStart = useCallback(() => {
+    if (!hasStarted) {
+      // First start — record wall-clock reference
+      startedAtRef.current = Date.now()
+    } else {
+      // Resume from pause — shift reference forward by pause duration
+      if (pauseStartRef.current && startedAtRef.current) {
+        startedAtRef.current += Date.now() - pauseStartRef.current
+        pauseStartRef.current = null
+      }
+    }
     setIsRunning(true)
     setHasStarted(true)
     onStart?.()
-  }, [onStart])
+  }, [hasStarted, onStart])
 
   const handlePause = useCallback(() => {
+    pauseStartRef.current = Date.now()
     setIsRunning(false)
     onPause?.()
   }, [onPause])
@@ -106,10 +145,12 @@ export function Timer({
   const handleReset = useCallback(() => {
     setIsRunning(false)
     setHasStarted(false)
-    setTotalSeconds(initialMinutes * 60)
+    startedAtRef.current = null
+    pauseStartRef.current = null
+    setTotalSeconds(totalDuration)
     timeUpFiredRef.current = false
     onReset?.()
-  }, [initialMinutes, onReset])
+  }, [totalDuration, onReset])
 
   // Determine timer color based on remaining time
   const getTimerColor = () => {
@@ -119,7 +160,7 @@ export function Timer({
     return 'text-foreground'
   }
 
-  const progress = isOvertime ? 0 : (totalSeconds / (initialMinutes * 60)) * 100
+  const progress = isOvertime ? 0 : (totalSeconds / totalDuration) * 100
 
   return (
     <Card className="w-full max-w-sm mx-auto">

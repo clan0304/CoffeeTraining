@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, AppState } from 'react-native'
 import { Button } from '../ui/Button'
 import { Card, CardContent } from '../ui/Card'
 import { colors } from '../../lib/colors'
@@ -31,18 +31,29 @@ export function Timer({
   onTimeUpRef.current = onTimeUp
   const timeUpFiredRef = useRef(false)
 
-  const calculateRemainingSeconds = useCallback(() => {
-    if (startTime) {
-      const startMs = new Date(startTime).getTime()
-      const nowMs = Date.now()
-      const elapsedSeconds = Math.floor((nowMs - startMs) / 1000)
-      const remaining = initialMinutes * 60 - elapsedSeconds
-      return remaining // allow negative
-    }
-    return initialMinutes * 60
-  }, [startTime, initialMinutes])
+  // Wall-clock reference for accurate time calculation
+  const startedAtRef = useRef<number | null>(null)
+  const pauseStartRef = useRef<number | null>(null)
 
-  const [totalSeconds, setTotalSeconds] = useState(calculateRemainingSeconds)
+  const totalDuration = initialMinutes * 60
+
+  // Compute remaining seconds from wall clock
+  const computeRemaining = useCallback(() => {
+    if (!startedAtRef.current) return totalDuration
+    const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000)
+    return totalDuration - elapsed
+  }, [totalDuration])
+
+  const [totalSeconds, setTotalSeconds] = useState(() => {
+    if (startTime) {
+      startedAtRef.current = new Date(startTime).getTime()
+      const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000)
+      const remaining = totalDuration - elapsed
+      if (remaining <= 0) timeUpFiredRef.current = true
+      return remaining
+    }
+    return totalDuration
+  })
   const [isRunning, setIsRunning] = useState(!!startTime || autoStart)
   const [hasStarted, setHasStarted] = useState(!!startTime || autoStart)
 
@@ -58,8 +69,9 @@ export function Timer({
 
   // Auto-start when startTime arrives
   useEffect(() => {
-    if (startTime && !isRunning) {
-      const remaining = calculateRemainingSeconds()
+    if (startTime) {
+      startedAtRef.current = new Date(startTime).getTime()
+      const remaining = computeRemaining()
       setTotalSeconds(remaining)
       setIsRunning(true)
       setHasStarted(true)
@@ -67,35 +79,62 @@ export function Timer({
     }
   }, [startTime]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Timer countdown (continues past 0 into overtime)
+  // Timer tick — always compute from wall clock, never prev - 1
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null
+    if (!isRunning || isPaused || !startedAtRef.current) return
 
-    if (isRunning && !isPaused) {
-      interval = setInterval(() => {
-        setTotalSeconds((prev) => {
-          const next = prev - 1
-          if (prev === 1 && !timeUpFiredRef.current) {
-            timeUpFiredRef.current = true
-            onTimeUpRef.current?.()
-          }
-          return next
-        })
-      }, 1000)
+    // Immediate sync on effect start
+    const remaining = computeRemaining()
+    setTotalSeconds(remaining)
+    if (remaining <= 0 && !timeUpFiredRef.current) {
+      timeUpFiredRef.current = true
+      onTimeUpRef.current?.()
     }
+
+    const interval = setInterval(() => {
+      const r = computeRemaining()
+      setTotalSeconds(r)
+      if (r <= 0 && !timeUpFiredRef.current) {
+        timeUpFiredRef.current = true
+        onTimeUpRef.current?.()
+      }
+    }, 1000)
+
+    // Recalculate immediately when app returns to foreground
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        const r = computeRemaining()
+        setTotalSeconds(r)
+        if (r <= 0 && !timeUpFiredRef.current) {
+          timeUpFiredRef.current = true
+          onTimeUpRef.current?.()
+        }
+      }
+    })
 
     return () => {
-      if (interval) clearInterval(interval)
+      clearInterval(interval)
+      subscription.remove()
     }
-  }, [isRunning, isPaused])
+  }, [isRunning, isPaused, computeRemaining])
 
   const handleStart = useCallback(() => {
+    if (!hasStarted) {
+      startedAtRef.current = Date.now()
+    } else {
+      // Resume from pause — shift reference forward by pause duration
+      if (pauseStartRef.current && startedAtRef.current) {
+        startedAtRef.current += Date.now() - pauseStartRef.current
+        pauseStartRef.current = null
+      }
+    }
     setIsRunning(true)
     setHasStarted(true)
     onStart?.()
-  }, [onStart])
+  }, [hasStarted, onStart])
 
   const handlePause = useCallback(() => {
+    pauseStartRef.current = Date.now()
     setIsRunning(false)
     onPause?.()
   }, [onPause])
@@ -103,10 +142,12 @@ export function Timer({
   const handleReset = useCallback(() => {
     setIsRunning(false)
     setHasStarted(false)
-    setTotalSeconds(initialMinutes * 60)
+    startedAtRef.current = null
+    pauseStartRef.current = null
+    setTotalSeconds(totalDuration)
     timeUpFiredRef.current = false
     onReset?.()
-  }, [initialMinutes, onReset])
+  }, [totalDuration, onReset])
 
   const getTimerColor = () => {
     if (isOvertime) return colors.pink
@@ -115,7 +156,7 @@ export function Timer({
     return colors.foreground
   }
 
-  const progress = isOvertime ? 0 : totalSeconds / (initialMinutes * 60)
+  const progress = isOvertime ? 0 : totalSeconds / totalDuration
 
   return (
     <Card>

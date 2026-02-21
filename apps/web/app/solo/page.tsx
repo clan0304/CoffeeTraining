@@ -16,6 +16,7 @@ export default function SoloPage() {
   const [correctAnswers, setCorrectAnswers] = useState<(number | null)[]>(Array(8).fill(null))
   const [isOvertime, setIsOvertime] = useState(false)
   const [overtimeRows, setOvertimeRows] = useState<Set<number>>(new Set())
+  const [submitWarning, setSubmitWarning] = useState(false)
 
   const handleStart = useCallback(() => {
     setAnswers(Array(8).fill(null))
@@ -30,10 +31,17 @@ export default function SoloPage() {
   }, [])
 
   const handleSubmitAnswers = useCallback(() => {
+    const unanswered = answers.filter((a) => a === null).length
+    if (unanswered > 0) {
+      setSubmitWarning(true)
+      return
+    }
+    setSubmitWarning(false)
     setGameState('inputting')
-  }, [])
+  }, [answers])
 
   const handleAnswerChange = useCallback((rowIndex: number, position: number) => {
+    setSubmitWarning(false)
     setAnswers((prev) => {
       const newAnswers = [...prev]
       newAnswers[rowIndex] = prev[rowIndex] === position ? null : position
@@ -67,6 +75,7 @@ export default function SoloPage() {
     setCorrectAnswers(Array(8).fill(null))
     setIsOvertime(false)
     setOvertimeRows(new Set())
+    setSubmitWarning(false)
   }, [])
 
   const answeredCount = answers.filter((a) => a !== null).length
@@ -165,6 +174,39 @@ export default function SoloPage() {
           >
             Submit Answers ({answeredCount}/8)
           </Button>
+
+          {submitWarning && (
+            <Card className="border-orange-400 bg-orange-50">
+              <CardContent className="pt-4">
+                <p className="text-sm font-medium text-orange-700 mb-2">
+                  You haven&apos;t answered all rows. Missing:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {answers.map((a, i) =>
+                    a === null ? (
+                      <span
+                        key={i}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange-200 text-orange-800 text-sm font-semibold"
+                      >
+                        {i + 1}
+                      </span>
+                    ) : null
+                  )}
+                </div>
+                <Button
+                  onClick={() => {
+                    setSubmitWarning(false)
+                    setGameState('inputting')
+                  }}
+                  variant="outline"
+                  className="w-full mt-3 border-orange-400 text-orange-700 hover:bg-orange-100"
+                  size="sm"
+                >
+                  Submit Anyway
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     )

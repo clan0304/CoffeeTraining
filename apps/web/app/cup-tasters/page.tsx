@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InvitationsList } from '@/components/rooms/invitations-list'
 import { getMySessionHistory } from '@/actions/rooms'
+import { LocalDate } from '@/app/sessions/[id]/local-date'
 
 function formatElapsedMs(ms: number) {
   const totalSeconds = Math.floor(ms / 1000)
@@ -40,11 +41,10 @@ async function SessionHistory() {
                         {session.room_name || `Room ${session.room_code}`}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(session.started_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
+                        <LocalDate
+                          dateStr={session.started_at}
+                          options={{ month: 'short', day: 'numeric', year: 'numeric' }}
+                        />
                         {' \u00B7 '}
                         {session.round_count} round{session.round_count === 1 ? '' : 's'}
                       </p>
