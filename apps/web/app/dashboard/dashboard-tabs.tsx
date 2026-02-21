@@ -3,8 +3,6 @@
 import Link from 'next/link'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { AccuracyTrend } from './accuracy-trend'
-import { CoffeeStats } from './coffee-stats'
 import type { PlayerDashboardData, CuppingDashboardData } from '@cuppingtraining/shared/types'
 
 function formatElapsedMs(ms: number) {
@@ -50,74 +48,10 @@ export function DashboardTabs({
 }
 
 function CupTastersContent({ data }: { data: PlayerDashboardData }) {
-  const { overallStats, accuracyTrend, coffeeStats, sessionHistory } = data
+  const { sessionHistory } = data
 
   return (
     <div className="space-y-8 mt-4">
-      {/* Overall Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Sessions</p>
-            <p className="text-3xl font-bold">{overallStats.totalSessions}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Rounds</p>
-            <p className="text-3xl font-bold">{overallStats.totalRounds}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Accuracy</p>
-            <p className="text-3xl font-bold">{overallStats.overallAccuracy}%</p>
-            <p className="text-xs text-muted-foreground">
-              {overallStats.correctAnswers}/{overallStats.totalAnswers}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Best Time</p>
-            <p className="text-3xl font-bold font-mono">
-              {overallStats.bestTimeMs !== null ? formatElapsedMs(overallStats.bestTimeMs) : '--'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {overallStats.avgTimeMs !== null && (
-        <Card>
-          <CardContent className="pt-6 flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">Average Time</p>
-            <p className="text-xl font-bold font-mono">
-              {formatElapsedMs(overallStats.avgTimeMs)}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Accuracy Trend */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Accuracy Trend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AccuracyTrend points={accuracyTrend} />
-        </CardContent>
-      </Card>
-
-      {/* Coffee Performance */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Coffee Performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CoffeeStats stats={coffeeStats} />
-        </CardContent>
-      </Card>
-
       {/* Session History */}
       <Card>
         <CardHeader>
