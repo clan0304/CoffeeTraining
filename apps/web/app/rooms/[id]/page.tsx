@@ -1167,7 +1167,7 @@ export default function RoomPage() {
                 </Avatar>
                 <div className="flex-1">
                   <p className="font-medium">
-                    @{player.profile?.username || 'Unknown'}
+                    {player.profile?.username || 'Unknown'}
                     {player.user_id === room.host_id && (
                       <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                         Host
