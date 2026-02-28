@@ -31,6 +31,7 @@ import {
   rejoinRoom,
   addCoffee,
   removeCoffee,
+  transferHost,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUPPING_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, CuppingFormType, CuppingSettings } from '@cuppingtraining/shared/types'
@@ -920,6 +921,22 @@ export default function CuppingRoomPage() {
                     )}
                   </p>
                 </div>
+                {isHost && room.status === 'waiting' && player.user_id !== room.host_id && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={async () => {
+                      const result = await transferHost(roomId, player.user_id)
+                      if (!result.error) {
+                        broadcastUpdate()
+                        loadRoom()
+                      }
+                    }}
+                  >
+                    Make Host
+                  </Button>
+                )}
               </div>
             ))}
 

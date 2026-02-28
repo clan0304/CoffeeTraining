@@ -33,6 +33,7 @@ import {
   updateSetRow,
   deleteSet,
   saveCorrectAnswers,
+  transferHost,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@cuppingtraining/shared/types'
@@ -1175,6 +1176,22 @@ export default function RoomPage() {
                     )}
                   </p>
                 </div>
+                {isHost && room.status === 'waiting' && player.user_id !== room.host_id && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={async () => {
+                      const result = await transferHost(roomId, player.user_id)
+                      if (!result.error) {
+                        broadcastUpdate()
+                        loadRoom()
+                      }
+                    }}
+                  >
+                    Make Host
+                  </Button>
+                )}
               </div>
             ))}
 

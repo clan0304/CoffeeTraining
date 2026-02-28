@@ -668,6 +668,68 @@ export async function leaveRoom(
 }
 
 // =============================================
+// TRANSFER HOST (host only, waiting status only)
+// =============================================
+
+export async function transferHost(
+  roomId: string,
+  newHostProfileId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Verify room and current host
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status')
+    .eq('id', roomId)
+    .single<{ host_id: string; status: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id !== profileId) {
+    return { error: 'Only the host can transfer host privileges' }
+  }
+
+  if (room.status !== 'waiting') {
+    return { error: 'Can only transfer host while in lobby' }
+  }
+
+  // Verify the new host is a player in the room
+  const { data: player } = await supabase
+    .from('room_players')
+    .select('id')
+    .eq('room_id', roomId)
+    .eq('user_id', newHostProfileId)
+    .maybeSingle()
+
+  if (!player) {
+    return { error: 'User is not a player in this room' }
+  }
+
+  // Transfer host
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      host_id: newHostProfileId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+
+  if (error) {
+    console.error('Error transferring host:', error)
+    return { error: 'Failed to transfer host' }
+  }
+
+  return { success: true }
+}
+
+// =============================================
 // REJOIN ROOM (for in-progress games)
 // =============================================
 
