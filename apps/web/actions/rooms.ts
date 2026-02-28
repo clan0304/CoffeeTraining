@@ -896,6 +896,59 @@ export async function removeCoffee(
   return { success: true }
 }
 
+export async function updateCoffee(
+  coffeeId: string,
+  name: string
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return { error: 'Coffee name cannot be empty' }
+  }
+
+  const supabase = createAdminSupabaseClient()
+
+  // Get coffee and verify host
+  const { data: coffee } = await supabase
+    .from('room_coffees')
+    .select('room_id')
+    .eq('id', coffeeId)
+    .single<{ room_id: string }>()
+
+  if (!coffee) {
+    return { error: 'Coffee not found' }
+  }
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status')
+    .eq('id', coffee.room_id)
+    .single<{ host_id: string; status: string }>()
+
+  if (!room || room.host_id !== profileId) {
+    return { error: 'Only the host can edit coffees' }
+  }
+
+  if (room.status !== 'waiting') {
+    return { error: 'Cannot edit coffees after game has started' }
+  }
+
+  const { error } = await supabase
+    .from('room_coffees')
+    .update({ name: trimmed })
+    .eq('id', coffeeId)
+
+  if (error) {
+    console.error('Error updating coffee:', error)
+    return { error: 'Failed to update coffee' }
+  }
+
+  return { success: true }
+}
+
 export async function getRoomCoffees(
   roomId: string
 ): Promise<{ coffees?: RoomCoffee[]; error?: string }> {
@@ -999,10 +1052,15 @@ export async function generateTriangulationSet(
   // Generate 8 rows with BALANCED coffee usage
   // Total cups = 8 rows x 3 cups = 24 cups
   // Each coffee should appear roughly equally (e.g., 5 coffees -> 5,5,5,5,4)
+  // Each coffee should also appear as the odd one out roughly equally
 
   // Track usage count for each coffee
   const usageCount = new Map<string, number>()
-  coffees.forEach(c => usageCount.set(c.id, 0))
+  const oddCount = new Map<string, number>()
+  coffees.forEach(c => {
+    usageCount.set(c.id, 0)
+    oddCount.set(c.id, 0)
+  })
 
   // Track used pairs within this set to avoid duplicates like (A,B) and (B,A)
   const usedPairs = new Set<string>()
@@ -1013,30 +1071,38 @@ export async function generateTriangulationSet(
   const selectedRows: Array<{ pair: RoomCoffee; odd: RoomCoffee; oddPosition: number }> = []
 
   for (let row = 0; row < 8; row++) {
-    // Sort coffees by usage (least used first)
+    // Sort coffees by odd count (for selecting odd coffee — least odd first)
+    const sortedByOddCount = [...coffees].sort((a, b) => {
+      const oddA = oddCount.get(a.id) || 0
+      const oddB = oddCount.get(b.id) || 0
+      if (oddA !== oddB) return oddA - oddB
+      return Math.random() - 0.5
+    })
+
+    // Sort coffees by total usage (for selecting pair coffee — least used first)
     const sortedByUsage = [...coffees].sort((a, b) => {
       const usageA = usageCount.get(a.id) || 0
       const usageB = usageCount.get(b.id) || 0
       if (usageA !== usageB) return usageA - usageB
-      return Math.random() - 0.5 // Randomize if equal
+      return Math.random() - 0.5
     })
 
-    // Find the best pair (pair coffee appears 2x, odd coffee appears 1x)
+    // Find the best combination:
+    // Outer loop: odd candidates (least odd appearances first → balanced odd distribution)
+    // Inner loop: pair candidates (least total usage first → balanced total cup usage)
     // Priority: 1) totally new — neither A->B nor B->A used in previous sets
     //           2) similar — reverse (B->A) exists but exact (A->B) doesn't
     //           3) exact duplicate — last resort fallback
     let pair: RoomCoffee = sortedByUsage[0]
-    let odd: RoomCoffee = sortedByUsage[1]
+    let odd: RoomCoffee = sortedByOddCount[0].id !== pair.id ? sortedByOddCount[0] : sortedByOddCount[1]
     let similarFallback: { pair: RoomCoffee; odd: RoomCoffee } | null = null
     let exactFallback: { pair: RoomCoffee; odd: RoomCoffee } | null = null
 
     outerLoop:
-    for (let i = 0; i < sortedByUsage.length; i++) {
-      for (let j = 0; j < sortedByUsage.length; j++) {
-        if (i === j) continue
+    for (const oddCandidate of sortedByOddCount) {
+      for (const pairCandidate of sortedByUsage) {
+        if (oddCandidate.id === pairCandidate.id) continue
 
-        const pairCandidate = sortedByUsage[i]
-        const oddCandidate = sortedByUsage[j]
         const pairKey = makePairKey(pairCandidate.id, oddCandidate.id)
 
         if (!usedPairs.has(pairKey)) {
@@ -1077,6 +1143,7 @@ export async function generateTriangulationSet(
     // Update usage counts (pair appears 2x, odd appears 1x)
     usageCount.set(pair.id, (usageCount.get(pair.id) || 0) + 2)
     usageCount.set(odd.id, (usageCount.get(odd.id) || 0) + 1)
+    oddCount.set(odd.id, (oddCount.get(odd.id) || 0) + 1)
 
     // Random odd position (1, 2, or 3)
     const oddPosition = Math.floor(Math.random() * 3) + 1

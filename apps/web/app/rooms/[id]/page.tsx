@@ -34,6 +34,7 @@ import {
   deleteSet,
   saveCorrectAnswers,
   transferHost,
+  updateCoffee,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@cuppingtraining/shared/types'
@@ -66,6 +67,8 @@ export default function RoomPage() {
   // Coffee management
   const [coffeeName, setCoffeeName] = useState('')
   const [coffeeLoading, setCoffeeLoading] = useState(false)
+  const [editingCoffeeId, setEditingCoffeeId] = useState<string | null>(null)
+  const [editingCoffeeName, setEditingCoffeeName] = useState('')
 
   // Set management
   const [generatingSet, setGeneratingSet] = useState(false)
@@ -635,6 +638,17 @@ export default function RoomPage() {
     await removeCoffee(coffeeId)
     loadRoom()
     broadcastUpdate()
+  }
+
+  const handleUpdateCoffee = async (coffeeId: string) => {
+    if (!editingCoffeeName.trim()) return
+    const result = await updateCoffee(coffeeId, editingCoffeeName.trim())
+    if (!result.error) {
+      setEditingCoffeeId(null)
+      setEditingCoffeeName('')
+      loadRoom()
+      broadcastUpdate()
+    }
   }
 
   // Set management
@@ -1219,18 +1233,52 @@ export default function RoomPage() {
                       key={coffee.id}
                       className="flex items-center justify-between py-2 px-3 bg-muted rounded-lg"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-primary">{coffee.label}</span>
-                        <span className="font-medium">{coffee.name}</span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemoveCoffee(coffee.id)}
-                        className="text-muted-foreground hover:text-red-500"
-                      >
-                        Remove
-                      </Button>
+                      {editingCoffeeId === coffee.id ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="font-bold text-primary">{coffee.label}</span>
+                          <Input
+                            value={editingCoffeeName}
+                            onChange={(e) => setEditingCoffeeName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); handleUpdateCoffee(coffee.id) }
+                              if (e.key === 'Escape') { setEditingCoffeeId(null); setEditingCoffeeName('') }
+                            }}
+                            className="h-8 flex-1"
+                            autoFocus
+                          />
+                          <Button variant="ghost" size="sm" onClick={() => handleUpdateCoffee(coffee.id)} disabled={!editingCoffeeName.trim()}>
+                            Save
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => { setEditingCoffeeId(null); setEditingCoffeeName('') }}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-primary">{coffee.label}</span>
+                            <span className="font-medium">{coffee.name}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => { setEditingCoffeeId(coffee.id); setEditingCoffeeName(coffee.name) }}
+                              className="text-muted-foreground"
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveCoffee(coffee.id)}
+                              className="text-muted-foreground hover:text-red-500"
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
