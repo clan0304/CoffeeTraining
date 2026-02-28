@@ -74,6 +74,24 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - Room flow: host selects form type in lobby. Stored in `rooms.settings` as `{ form_type: 'simple' | 'sca' }`. All players use the same form.
 - Results/session detail views check `score.form_type` to render the correct form component.
 
+### Flavor Words & Autocomplete
+- `user_flavor_words` table stores per-user custom vocabulary (word + user_id, unique constraint).
+- **Common words**: `COMMON_FLAVOR_WORDS` from `@cuppingtraining/shared/flavor-words` — SCA Flavor Wheel descriptors organized by `FLAVOR_CATEGORIES`.
+- **Autocomplete**: `AutocompleteNotesInput` component (web + mobile) provides suggestions from common + custom words while typing in notes fields. Comma-separated input, suggestions appear after 1+ chars.
+- **FlavorWordsProvider**: Context provider wrapping cupping layouts. Exposes `{ words: string[], addWord: (word) => Promise<void> }`. Web uses `getUserFlavorWords()` / `addFlavorWord()` server actions. Mobile uses `/api/mobile/flavor-words` GET/POST.
+- **Post-Session Review**: `NewWordsReview` component (web + mobile) shown in results views. Uses `extractNewWordsFromSamples()` to find words not in common/custom lists. Users select words via pills and bulk-save to vocabulary.
+- **No inline save during cupping** — autocomplete only suggests existing words. New word saving happens exclusively in post-session review.
+- Utilities: `@cuppingtraining/shared/flavor-words` (`extractWordsFromScores`, `extractNewWords`, `extractNewWordsFromSamples`).
+- Server actions: `apps/web/actions/flavor-words.ts` (`getUserFlavorWords`, `addFlavorWord`, `removeFlavorWord`).
+- Mobile API: `apps/web/app/api/mobile/flavor-words/route.ts` (GET list, POST add word).
+- Settings page (`/settings`) lets users manage their vocabulary (add/remove words).
+
+### Session Report
+- `SessionReportCard` component (`apps/web/components/cupping/session-report-card.tsx`) — shown in multiplayer results view and session detail page.
+- Uses `generateSessionReport()` from `@cuppingtraining/shared/cupping` to compute all data.
+- 4 sections: **Session Summary** (stat cards), **Score Comparison** (per-coffee avg/high/low + player score pills), **Attribute Averages** (progress bars), **Community Notes** (word frequency pills + per-player notes).
+- Utility: `packages/shared/src/cupping/session-report.ts` — exports `generateSessionReport()` and types (`SessionReport`, `CoffeeSummary`, `CoffeeNotes`, `AttributeAverage`, etc.).
+
 ### Mobile API Layer
 - Mobile app communicates with the web app's Next.js API routes (not server actions directly).
 - API routes live in `apps/web/app/api/mobile/` and wrap existing server action logic.
@@ -91,6 +109,8 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 | `/api/mobile/onboarding/complete` | POST | JSON `{ username, bio, photoUrl }` — completes onboarding |
 | `/api/mobile/dashboard/cup-tasters` | GET | Returns `PlayerDashboardData` (stats, accuracy trend, coffee stats, session history) |
 | `/api/mobile/dashboard/cupping` | GET | Returns `CuppingDashboardData` (stats, session history) |
+| `/api/mobile/flavor-words` | GET | Returns user's custom flavor words |
+| `/api/mobile/flavor-words` | POST | JSON `{ word }` — adds word to user's vocabulary |
 
 ## Database Schema (key tables)
 - `user_profiles` — id (UUID PK), clerk_id (TEXT, Clerk user ID for auth lookup), username, bio, photo_url
@@ -104,19 +124,21 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - `cupping_sessions` — user_id, room_id
 - `cupping_samples` — session_id, sample_number, sample_label
 - `cupping_scores` — sample_id, user_id, form_type ('sca' | 'simple'), scores (JSONB), total_score
+- `user_flavor_words` — user_id (UUID FK → user_profiles.id), word (TEXT), unique on (user_id, word)
 - **Note**: All user references are UUID FKs to `user_profiles.id`. Clerk IDs are only stored in `user_profiles.clerk_id`.
 
 ## Project Structure (Turborepo Monorepo)
 ```
 apps/
   web/                  # Next.js web app (@cuppingtraining/web)
-    actions/            # Server actions (rooms.ts, cupping.ts, onboarding.ts)
+    actions/            # Server actions (rooms.ts, cupping.ts, onboarding.ts, flavor-words.ts)
     app/                # Next.js App Router pages
       (auth)/           # Auth pages (Clerk)
       api/mobile/       # REST API routes for mobile app
         profile/        # GET user profile, POST update-username
         onboarding/     # check-username, upload-photo, complete
         dashboard/      # cup-tasters, cupping (GET dashboard data)
+        flavor-words/   # GET list, POST add word
       rooms/[id]/       # Multiplayer room page (cup tasters)
       cupping/          # Cupping mode
         solo/           # Solo cupping (form type selection + scoring)
@@ -126,14 +148,14 @@ apps/
       onboarding/       # User onboarding
     components/
       training/         # Timer, Countdown, AnswerSheet, TriangulationRow
-      cupping/          # ScaForm, SimpleForm
+      cupping/          # ScaForm, SimpleForm, AutocompleteNotesInput, FlavorWordsProvider, NewWordsReview, SessionReportCard
       rooms/            # InvitationsList
       onboarding/       # OnboardingForm
       ui/               # shadcn/ui components
     lib/
       api/auth.ts       # Mobile API auth helper (Bearer token → profile UUID)
       supabase/         # Supabase client helpers (client.ts, server.ts, admin.ts)
-    supabase/migrations/ # SQL migrations (001-021)
+    supabase/migrations/ # SQL migrations (001-022)
     proxy.ts            # Next.js 16 proxy (renamed from middleware.ts)
   mobile/               # Expo/React Native app (@cuppingtraining/mobile)
     app/
@@ -154,7 +176,7 @@ apps/
         profile/        # Profile tab (user info, edit username, sign out)
     components/
       training/         # Timer, Countdown, AnswerSheet, TriangulationRow
-      cupping/          # StarRating, SimpleForm, ScaForm
+      cupping/          # StarRating, SimpleForm, ScaForm, AutocompleteNotesInput, FlavorWordsProvider, NewWordsReview
       dashboard/        # AccuracyTrend, CoffeeStats
       ui/               # Button, Card
     lib/
@@ -166,7 +188,8 @@ packages/
   shared/               # @cuppingtraining/shared (raw TypeScript, no build step)
     src/
       types/database.ts       # All TypeScript types
-      cupping/                # sca-utils.ts, simple-utils.ts, index.ts
+      cupping/                # sca-utils.ts, simple-utils.ts, session-report.ts, index.ts
+      flavor-words/           # common.ts, autocomplete.ts, notes-extraction.ts, index.ts
       constants/broadcast.ts  # Channel builders + event name constants
 turbo.json              # Turborepo config
 package.json            # Workspace root
@@ -174,10 +197,10 @@ package.json            # Workspace root
 
 ## Shared Package (`@cuppingtraining/shared`)
 - **No build step** — consumers (Next.js, Expo) transpile raw TypeScript directly.
-- Import paths: `@cuppingtraining/shared/types`, `@cuppingtraining/shared/cupping`, `@cuppingtraining/shared/constants`.
+- Import paths: `@cuppingtraining/shared/types`, `@cuppingtraining/shared/cupping`, `@cuppingtraining/shared/constants`, `@cuppingtraining/shared/flavor-words`.
 - Web app includes `transpilePackages: ['@cuppingtraining/shared']` in `apps/web/next.config.ts`.
 - Mobile app resolves via `paths` in `tsconfig.json` + Metro `watchFolders` in `metro.config.js`.
-- Types, cupping utils, and broadcast constants are the single source of truth shared across apps.
+- Types, cupping utils, flavor word utils, and broadcast constants are the single source of truth shared across apps.
 
 ## Key Server Actions (`apps/web/actions/rooms.ts`)
 - `createRoom`, `deleteRoom`, `joinRoomByCode` — room lifecycle

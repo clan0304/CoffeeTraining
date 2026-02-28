@@ -12,6 +12,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { NewWordsReview } from '@/components/cupping/new-words-review'
+import { SessionReportCard } from '@/components/cupping/session-report-card'
 import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 import {
   getCuppingRoomDetails,
@@ -25,6 +27,8 @@ import {
   inviteUserByUsername,
   cancelInvitation,
   deleteRoom,
+  leaveRoom,
+  rejoinRoom,
   addCoffee,
   removeCoffee,
 } from '@/actions/rooms'
@@ -74,6 +78,11 @@ export default function CuppingRoomPage() {
   const [submittingScores, setSubmittingScores] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [submittedPlayers, setSubmittedPlayers] = useState<Array<{ userId: string; username: string }>>([])
+
+  // Leave/rejoin state
+  const [leaveConfirm, setLeaveConfirm] = useState(false)
+  const [leaveLoading, setLeaveLoading] = useState(false)
+  const [rejoinLoading, setRejoinLoading] = useState(false)
 
   // Scoring state
   const [sampleScores, setSampleScores] = useState<SampleScoreState[]>([])
@@ -162,6 +171,14 @@ export default function CuppingRoomPage() {
         const { sessionId } = payload.payload as { sessionId: string }
         setResultSessionId(sessionId)
         setGamePhase('results')
+      })
+
+      channel.on('broadcast', { event: CUPPING_EVENTS.PLAYER_LEFT }, async () => {
+        const result = await getCuppingRoomDetails(roomId)
+        if (!result.error && result.room) {
+          setRoom(result.room)
+          setCoffeeCount(result.coffeeCount ?? 0)
+        }
       })
 
       channel.on('broadcast', { event: CUPPING_EVENTS.ROOM_UPDATED }, async () => {
@@ -389,6 +406,39 @@ export default function CuppingRoomPage() {
     await loadRoom()
   }
 
+  const handleLeaveRoom = async () => {
+    setLeaveLoading(true)
+    const result = await leaveRoom(roomId)
+    if (result.error) {
+      console.error('Leave room error:', result.error)
+      setLeaveLoading(false)
+      return
+    }
+    roomChannel?.send({
+      type: 'broadcast',
+      event: CUPPING_EVENTS.PLAYER_LEFT,
+      payload: {},
+    })
+    router.push('/cupping')
+  }
+
+  const handleRejoinRoom = async () => {
+    setRejoinLoading(true)
+    const result = await rejoinRoom(roomId)
+    if (result.error) {
+      console.error('Rejoin error:', result.error)
+      setRejoinLoading(false)
+      return
+    }
+    roomChannel?.send({
+      type: 'broadcast',
+      event: CUPPING_EVENTS.ROOM_UPDATED,
+      payload: {},
+    })
+    await loadRoom()
+    setRejoinLoading(false)
+  }
+
   // Loading / Error states
   if (loading) {
     return (
@@ -413,7 +463,35 @@ export default function CuppingRoomPage() {
   }
 
   const isHost = currentUserProfileId === room.host_id
+  const isMember = room.players.some((p) => p.user_id === currentUserProfileId)
   const pendingInvitations = room.invitations.filter((i) => i.status === 'pending')
+
+  // Not a member — show rejoin UI or redirect
+  if (!isMember && !loading) {
+    const isInProgress = room.status === 'playing'
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-md mx-auto space-y-6 pt-8 text-center">
+          <h1 className="text-2xl font-bold">{room.name || 'Cupping Room'}</h1>
+          {isInProgress ? (
+            <>
+              <p className="text-muted-foreground">A cupping session is in progress. Rejoin to continue scoring.</p>
+              <Button onClick={handleRejoinRoom} disabled={rejoinLoading}>
+                {rejoinLoading ? 'Rejoining...' : 'Rejoin Session'}
+              </Button>
+            </>
+          ) : (
+            <p className="text-muted-foreground">You are not a member of this room.</p>
+          )}
+          <div>
+            <Button variant="ghost" onClick={() => router.push('/cupping')}>
+              Back to Cupping
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // =========================================
   // RESULTS VIEW
@@ -456,6 +534,13 @@ export default function CuppingRoomPage() {
               </div>
             </CardContent>
           </Card>
+
+          <NewWordsReview
+            sampleScores={sampleScores.map((s) => ({ scores: s.scores }))}
+            formType={roomFormType}
+          />
+
+          <SessionReportCard samples={resultSamples} scores={resultScores} />
 
           {/* Per-sample scores by player */}
           <Tabs defaultValue={resultSamples[0]?.sample_number.toString()}>
@@ -590,7 +675,42 @@ export default function CuppingRoomPage() {
         <div className="max-w-3xl mx-auto space-y-4 pt-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold">Score Samples</h1>
+            {!isHost && (
+              <Button variant="ghost" size="sm" onClick={() => setLeaveConfirm(true)}>
+                Exit
+              </Button>
+            )}
           </div>
+
+          {leaveConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLeaveConfirm(false)}>
+              <Card className="w-[90%] max-w-sm relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setLeaveConfirm(false)}
+                  className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+                <CardContent className="pt-6 pb-4">
+                  <p className="font-medium mb-1">Leave session?</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    You can rejoin by navigating back to this room.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setLeaveConfirm(false)}>
+                      Cancel
+                    </Button>
+                    <Button className="flex-1" onClick={() => { setLeaveConfirm(false); handleLeaveRoom() }} disabled={leaveLoading}>
+                      {leaveLoading ? 'Leaving...' : 'Leave'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Who has submitted */}
           {submittedPlayers.length > 0 && (
@@ -677,9 +797,11 @@ export default function CuppingRoomPage() {
               {room.status === 'waiting' ? 'Waiting for players' : room.status}
             </p>
           </div>
-          <Link href="/cupping">
-            <Button variant="ghost" size="sm">Exit</Button>
-          </Link>
+          {!isHost && (
+            <Button variant="ghost" size="sm" onClick={handleLeaveRoom} disabled={leaveLoading}>
+              {leaveLoading ? 'Leaving...' : 'Exit'}
+            </Button>
+          )}
         </div>
 
         {/* Room Code */}

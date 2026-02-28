@@ -24,7 +24,12 @@ export function Navbar() {
   const links = [
     { href: '/cup-tasters', label: 'Cup Tasters' },
     { href: '/cupping', label: 'Cupping' },
-    ...(isSignedIn ? [{ href: '/dashboard', label: 'Dashboard' }] : []),
+    ...(isSignedIn
+      ? [
+          { href: '/dashboard', label: 'Dashboard' },
+          { href: '/settings', label: 'Settings' },
+        ]
+      : []),
   ]
 
   return (

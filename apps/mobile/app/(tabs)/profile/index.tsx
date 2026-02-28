@@ -39,6 +39,11 @@ export default function ProfileTab() {
   const [saving, setSaving] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Flavor words state
+  const [flavorWords, setFlavorWords] = useState<string[]>([])
+  const [flavorDraft, setFlavorDraft] = useState('')
+  const [addingFlavor, setAddingFlavor] = useState(false)
+
   const fetchProfile = useCallback(() => {
     setLoading(true)
     apiFetch<ProfileData>('/profile')
@@ -117,6 +122,46 @@ export default function ProfileTab() {
       setSaving(false)
     }
   }, [draft, profile?.username, apiFetch])
+
+  // Flavor words handlers
+  const fetchFlavorWords = useCallback(() => {
+    apiFetch<{ words: string[] }>('/flavor-words')
+      .then((res) => setFlavorWords(res.words))
+      .catch(() => {})
+  }, [apiFetch])
+
+  useEffect(() => {
+    fetchFlavorWords()
+  }, [fetchFlavorWords])
+
+  const addFlavorWord = useCallback(async () => {
+    const word = flavorDraft.trim().toLowerCase()
+    if (!word) return
+    setAddingFlavor(true)
+    try {
+      await apiFetch('/flavor-words', { method: 'POST', json: { word } })
+      setFlavorWords((prev) => (prev.includes(word) ? prev : [...prev, word].sort()))
+      setFlavorDraft('')
+    } catch {
+      Alert.alert('Error', 'Failed to add word')
+    } finally {
+      setAddingFlavor(false)
+    }
+  }, [flavorDraft, apiFetch])
+
+  const removeFlavorWord = useCallback(
+    async (word: string) => {
+      try {
+        await apiFetch(`/flavor-words/${encodeURIComponent(word)}`, {
+          method: 'DELETE',
+        })
+        setFlavorWords((prev) => prev.filter((w) => w !== word))
+      } catch {
+        Alert.alert('Error', 'Failed to remove word')
+      }
+    },
+    [apiFetch]
+  )
 
   const canSave =
     draft.length >= 3 &&
@@ -262,6 +307,61 @@ export default function ProfileTab() {
           </CardContent>
         </Card>
 
+        {/* Flavor Words */}
+        <Card>
+          <CardContent style={styles.infoContent}>
+            <Text style={styles.sectionTitle}>Flavor Vocabulary</Text>
+            <Text style={styles.sectionDescription}>
+              Custom words for cupping note autocomplete
+            </Text>
+            <View style={styles.flavorAddRow}>
+              <TextInput
+                style={styles.flavorInput}
+                value={flavorDraft}
+                onChangeText={setFlavorDraft}
+                placeholder="Add a flavor word..."
+                placeholderTextColor={colors.mutedLight}
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={100}
+                onSubmitEditing={addFlavorWord}
+                returnKeyType="done"
+              />
+              <TouchableOpacity
+                onPress={addFlavorWord}
+                disabled={addingFlavor || !flavorDraft.trim()}
+                style={[
+                  styles.flavorAddBtn,
+                  (addingFlavor || !flavorDraft.trim()) && styles.flavorAddBtnDisabled,
+                ]}
+              >
+                <Text style={styles.flavorAddBtnText}>
+                  {addingFlavor ? '...' : 'Add'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {flavorWords.length === 0 ? (
+              <Text style={styles.flavorEmpty}>
+                No custom words yet. Common SCA words are always available.
+              </Text>
+            ) : (
+              <View style={styles.flavorPills}>
+                {flavorWords.map((word) => (
+                  <View key={word} style={styles.flavorPill}>
+                    <Text style={styles.flavorPillText}>{word}</Text>
+                    <TouchableOpacity
+                      onPress={() => removeFlavorWord(word)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.flavorPillRemove}>&times;</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </CardContent>
+        </Card>
+
         <Button
           variant="outline"
           onPress={() => signOut()}
@@ -395,5 +495,74 @@ const styles = StyleSheet.create({
   },
   signOutButton: {
     marginTop: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: 2,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    color: colors.muted,
+    marginBottom: 12,
+  },
+  flavorAddRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  flavorInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+    color: colors.foreground,
+  },
+  flavorAddBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  flavorAddBtnDisabled: {
+    opacity: 0.4,
+  },
+  flavorAddBtnText: {
+    color: colors.primaryForeground,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  flavorEmpty: {
+    fontSize: 13,
+    color: colors.muted,
+  },
+  flavorPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  flavorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.borderLight,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  flavorPillText: {
+    fontSize: 13,
+    color: colors.foreground,
+  },
+  flavorPillRemove: {
+    fontSize: 16,
+    color: colors.muted,
+    lineHeight: 18,
+    marginLeft: 2,
   },
 })

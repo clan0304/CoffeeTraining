@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
+import { AutocompleteNotesInput } from './autocomplete-notes-input'
 import type { SimpleCuppingScores } from '@cuppingtraining/shared/types'
 import { calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 
@@ -75,12 +76,11 @@ function AttributeRow({
         <span className="text-lg font-bold tabular-nums">{score}<span className="text-xs font-normal text-muted-foreground">/5</span></span>
       </div>
       <StarRating value={score} onChange={onScoreChange} readOnly={readOnly} />
-      <Input
+      <AutocompleteNotesInput
         value={notes}
-        onChange={(e) => onNotesChange(e.target.value)}
+        onChange={onNotesChange}
         readOnly={readOnly}
         placeholder={placeholder}
-        className="text-xs h-7 border-dashed"
       />
     </div>
   )
@@ -126,12 +126,11 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
       {/* Overall notes */}
       <div className="rounded-lg border bg-card p-4 space-y-2">
         <span className="text-sm font-medium">Overall Notes</span>
-        <Input
+        <AutocompleteNotesInput
           value={scores.overall_notes}
-          onChange={(e) => update({ overall_notes: e.target.value })}
+          onChange={(v) => update({ overall_notes: v })}
           readOnly={readOnly}
           placeholder="General impressions..."
-          className="text-xs h-7 border-dashed"
         />
       </div>
     </div>

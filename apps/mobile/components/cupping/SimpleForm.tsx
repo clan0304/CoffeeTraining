@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from 'react'
-import { View, Text, TextInput, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet } from 'react-native'
 import type { SimpleCuppingScores } from '@cuppingtraining/shared/types'
 import { calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 import { StarRating } from './StarRating'
+import { AutocompleteNotesInput } from './AutocompleteNotesInput'
 import { colors } from '../../lib/colors'
 
 interface SimpleFormProps {
@@ -48,13 +49,12 @@ function AttributeRow({
         </Text>
       </View>
       <StarRating value={score} onChange={onScoreChange} readOnly={readOnly} />
-      <TextInput
-        style={styles.notesInput}
+      <AutocompleteNotesInput
         value={notes}
         onChangeText={onNotesChange}
         editable={!readOnly}
         placeholder={placeholder}
-        placeholderTextColor={colors.mutedLight}
+        style={styles.notesInput}
       />
     </View>
   )
@@ -99,13 +99,12 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
       {/* Overall Notes */}
       <View style={styles.attrCard}>
         <Text style={styles.attrLabel}>Overall Notes</Text>
-        <TextInput
-          style={styles.notesInput}
+        <AutocompleteNotesInput
           value={scores.overall_notes}
           onChangeText={(v) => update({ overall_notes: v })}
           editable={!readOnly}
           placeholder="General impressions..."
-          placeholderTextColor={colors.mutedLight}
+          style={styles.notesInput}
         />
       </View>
     </View>

@@ -11,6 +11,7 @@ export const CUP_TASTERS_EVENTS = {
   PLAYER_FINISHED: 'player_finished',
   ROUND_ENDED: 'round_ended',
   SESSION_ENDED: 'session_ended',
+  PLAYER_LEFT: 'player_left',
   ROOM_UPDATED: 'room_updated',
 } as const
 
@@ -19,6 +20,7 @@ export const CUPPING_EVENTS = {
   CUPPING_STARTED: 'cupping_started',
   PLAYER_SUBMITTED: 'player_submitted',
   CUPPING_ENDED: 'cupping_ended',
+  PLAYER_LEFT: 'player_left',
   ROOM_UPDATED: 'room_updated',
 } as const
 

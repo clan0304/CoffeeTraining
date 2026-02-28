@@ -17,6 +17,8 @@ import {
   inviteUserByUsername,
   cancelInvitation,
   deleteRoom,
+  leaveRoom,
+  rejoinRoom,
   startGame,
   beginPlaying,
   pauseGame,
@@ -30,6 +32,7 @@ import {
   createEmptySet,
   updateSetRow,
   deleteSet,
+  saveCorrectAnswers,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@cuppingtraining/shared/types'
@@ -86,8 +89,12 @@ export default function RoomPage() {
   const [myElapsedMs, setMyElapsedMs] = useState<number | null>(null)
   const [finishLoading, setFinishLoading] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
+  const [endSessionConfirm, setEndSessionConfirm] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [completedRoundsCount, setCompletedRoundsCount] = useState(0)
+  const [leaveConfirm, setLeaveConfirm] = useState(false)
+  const [leaveLoading, setLeaveLoading] = useState(false)
+  const [rejoinLoading, setRejoinLoading] = useState(false)
 
   const loadRoom = useCallback(async () => {
     const result = await getRoomDetails(roomId)
@@ -220,6 +227,14 @@ export default function RoomPage() {
         console.log('[Realtime] Received session_ended broadcast:', payload)
         const { sessionId } = payload.payload as { sessionId: string }
         router.push(`/sessions/${sessionId}`)
+      })
+
+      channel.on('broadcast', { event: CUP_TASTERS_EVENTS.PLAYER_LEFT }, async () => {
+        console.log('[Realtime] Received player_left broadcast')
+        const result = await getRoomDetails(roomId)
+        if (!result.error && result.room) {
+          setRoom(result.room)
+        }
       })
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.ROOM_UPDATED }, async (payload) => {
@@ -500,12 +515,17 @@ export default function RoomPage() {
     }
   }
 
+
   const handleCorrectAnswerChange = (rowIndex: number, position: number) => {
-    setCorrectAnswers((prev) => {
-      const newCorrect = [...prev]
-      newCorrect[rowIndex] = prev[rowIndex] === position ? null : position
-      return newCorrect
-    })
+    const newCorrect = [...correctAnswers]
+    newCorrect[rowIndex] = correctAnswers[rowIndex] === position ? null : position
+    setCorrectAnswers(newCorrect)
+
+    // When all 8 cups are revealed, save to DB and calculate is_correct
+    const revealedCount = newCorrect.filter((a) => a !== null).length
+    if (revealedCount === 8) {
+      saveCorrectAnswers(roomId, newCorrect)
+    }
   }
 
   const handleEndRound = async () => {
@@ -560,6 +580,39 @@ export default function RoomPage() {
   // Helper to broadcast room updates
   const broadcastUpdate = () => {
     roomChannel?.send({ type: 'broadcast', event: CUP_TASTERS_EVENTS.ROOM_UPDATED, payload: {} })
+  }
+
+  const handleLeaveRoom = async () => {
+    setLeaveLoading(true)
+    const result = await leaveRoom(roomId)
+    if (result.error) {
+      console.error('Leave room error:', result.error)
+      setLeaveLoading(false)
+      return
+    }
+    roomChannel?.send({
+      type: 'broadcast',
+      event: CUP_TASTERS_EVENTS.PLAYER_LEFT,
+      payload: {},
+    })
+    router.push('/')
+  }
+
+  const handleRejoinRoom = async () => {
+    setRejoinLoading(true)
+    const result = await rejoinRoom(roomId)
+    if (result.error) {
+      console.error('Rejoin error:', result.error)
+      setRejoinLoading(false)
+      return
+    }
+    roomChannel?.send({
+      type: 'broadcast',
+      event: CUP_TASTERS_EVENTS.ROOM_UPDATED,
+      payload: {},
+    })
+    await loadRoom()
+    setRejoinLoading(false)
   }
 
   // Coffee management
@@ -653,7 +706,35 @@ export default function RoomPage() {
   }
 
   const isHost = currentUserProfileId === room.host_id
+  const isMember = room.players.some((p) => p.user_id === currentUserProfileId)
   const pendingInvitations = room.invitations.filter((i) => i.status === 'pending')
+
+  // Not a member — show rejoin UI or redirect
+  if (!isMember && !loading) {
+    const isInProgress = room.status === 'playing' || room.status === 'paused' || room.status === 'countdown'
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-md mx-auto space-y-6 pt-8 text-center">
+          <h1 className="text-2xl font-bold">{room.name || 'Training Room'}</h1>
+          {isInProgress ? (
+            <>
+              <p className="text-muted-foreground">A game is in progress. Rejoin to continue playing.</p>
+              <Button onClick={handleRejoinRoom} disabled={rejoinLoading}>
+                {rejoinLoading ? 'Rejoining...' : 'Rejoin Game'}
+              </Button>
+            </>
+          ) : (
+            <p className="text-muted-foreground">You are not a member of this room.</p>
+          )}
+          <div>
+            <Button variant="ghost" onClick={() => router.push('/')}>
+              Back to Home
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   const answeredCount = answers.filter((a) => a !== null).length
   const correctCount = correctAnswers.filter((a) => a !== null).length
   const allRevealed = correctCount === 8
@@ -686,7 +767,42 @@ export default function RoomPage() {
         <div className="max-w-md mx-auto space-y-6 pt-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold">{room.name || 'Training Room'}</h1>
+            {!isHost && (
+              <Button variant="ghost" size="sm" onClick={() => setLeaveConfirm(true)}>
+                Exit
+              </Button>
+            )}
           </div>
+
+          {leaveConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLeaveConfirm(false)}>
+              <Card className="w-[90%] max-w-sm relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setLeaveConfirm(false)}
+                  className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+                <CardContent className="pt-6 pb-4">
+                  <p className="font-medium mb-1">Leave game?</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    You can rejoin by navigating back to this room.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setLeaveConfirm(false)}>
+                      Cancel
+                    </Button>
+                    <Button className="flex-1" onClick={() => { setLeaveConfirm(false); handleLeaveRoom() }} disabled={leaveLoading}>
+                      {leaveLoading ? 'Leaving...' : 'Leave'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           <Timer
             initialMinutes={room.timer_minutes}
@@ -798,7 +914,42 @@ export default function RoomPage() {
         <div className="max-w-md mx-auto space-y-6 pt-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold">Check Cups</h1>
+            {!isHost && (
+              <Button variant="ghost" size="sm" onClick={() => setLeaveConfirm(true)}>
+                Exit
+              </Button>
+            )}
           </div>
+
+          {leaveConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLeaveConfirm(false)}>
+              <Card className="w-[90%] max-w-sm relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setLeaveConfirm(false)}
+                  className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+                <CardContent className="pt-6 pb-4">
+                  <p className="font-medium mb-1">Leave game?</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    You can rejoin by navigating back to this room.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setLeaveConfirm(false)}>
+                      Cancel
+                    </Button>
+                    <Button className="flex-1" onClick={() => { setLeaveConfirm(false); handleLeaveRoom() }} disabled={leaveLoading}>
+                      {leaveLoading ? 'Leaving...' : 'Leave'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Show finish time */}
           {myElapsedMs !== null && (
@@ -897,9 +1048,11 @@ export default function RoomPage() {
               {room.status === 'waiting' ? 'Waiting for players' : room.status}
             </p>
           </div>
-          <Link href="/">
-            <Button variant="ghost" size="sm">Exit</Button>
-          </Link>
+          {!isHost && (
+            <Button variant="ghost" size="sm" onClick={handleLeaveRoom} disabled={leaveLoading}>
+              {leaveLoading ? 'Leaving...' : 'Exit'}
+            </Button>
+          )}
         </div>
 
         {/* Room Code */}
@@ -1257,14 +1410,55 @@ export default function RoomPage() {
           )}
 
           {isHost && completedRoundsCount > 0 && room.status === 'waiting' && (
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={handleEndSession}
-              disabled={endingSession}
-            >
-              {endingSession ? 'Ending Session...' : `End Session (${completedRoundsCount} round${completedRoundsCount === 1 ? '' : 's'})`}
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => setEndSessionConfirm(true)}
+                disabled={endingSession}
+              >
+                {endingSession ? 'Ending Session...' : `End Session (${completedRoundsCount} round${completedRoundsCount === 1 ? '' : 's'})`}
+              </Button>
+              {endSessionConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEndSessionConfirm(false)}>
+                  <Card className="w-[90%] max-w-sm relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => setEndSessionConfirm(false)}
+                      className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Close"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                    <CardContent className="pt-6 pb-4">
+                      <p className="font-medium mb-1">End this session?</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        This will finalize the session with {completedRoundsCount} round{completedRoundsCount === 1 ? '' : 's'}. You can view the summary afterwards.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => setEndSessionConfirm(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          onClick={() => {
+                            setEndSessionConfirm(false)
+                            handleEndSession()
+                          }}
+                        >
+                          End Session
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </>
           )}
 
           {isHost && (

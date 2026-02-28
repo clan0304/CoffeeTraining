@@ -5,6 +5,7 @@
   "exports": {
     "./types": "./src/types/database.ts",
     "./cupping": "./src/cupping/index.ts",
-    "./constants": "./src/constants/broadcast.ts"
+    "./constants": "./src/constants/broadcast.ts",
+    "./flavor-words": "./src/flavor-words/index.ts"
   }
 }

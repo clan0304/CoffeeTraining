@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
+import { AutocompleteNotesInput } from './autocomplete-notes-input'
 import type { ScaCuppingScores } from '@cuppingtraining/shared/types'
 import { calculateScaTotalScore } from '@cuppingtraining/shared/cupping'
 
@@ -106,9 +107,9 @@ function AttributeBox({
       </div>
       <ScoreSlider value={score} onChange={onScoreChange} readOnly={readOnly} />
       {children}
-      <Input
+      <AutocompleteNotesInput
         value={notes}
-        onChange={(e) => onNotesChange(e.target.value)}
+        onChange={onNotesChange}
         readOnly={readOnly}
         placeholder="Notes..."
         className="text-xs h-7 border-dashed mt-auto"
@@ -162,9 +163,9 @@ function CupBox({
           </button>
         ))}
       </div>
-      <Input
+      <AutocompleteNotesInput
         value={notes}
-        onChange={(e) => onNotesChange(e.target.value)}
+        onChange={onNotesChange}
         readOnly={readOnly}
         placeholder="Notes..."
         className="text-xs h-7 border-dashed mt-auto"

@@ -1,7 +1,6 @@
 'use client'
 
-import { SignIn, SignUp } from '@clerk/nextjs'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SignIn } from '@clerk/nextjs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function AuthPage() {
@@ -14,45 +13,21 @@ export default function AuthPage() {
             Sign in to start training your palate
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="sign-in" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="sign-in">Sign In</TabsTrigger>
-              <TabsTrigger value="sign-up">Sign Up</TabsTrigger>
-            </TabsList>
-            <TabsContent value="sign-in" className="flex justify-center">
-              <SignIn
-                appearance={{
-                  elements: {
-                    rootBox: 'w-full',
-                    card: 'shadow-none p-0 w-full',
-                    headerTitle: 'hidden',
-                    headerSubtitle: 'hidden',
-                    socialButtonsBlockButton: 'w-full',
-                    formButtonPrimary: 'w-full bg-primary hover:bg-primary/90',
-                    footerAction: 'hidden',
-                  },
-                }}
-                routing="hash"
-              />
-            </TabsContent>
-            <TabsContent value="sign-up" className="flex justify-center">
-              <SignUp
-                appearance={{
-                  elements: {
-                    rootBox: 'w-full',
-                    card: 'shadow-none p-0 w-full',
-                    headerTitle: 'hidden',
-                    headerSubtitle: 'hidden',
-                    socialButtonsBlockButton: 'w-full',
-                    formButtonPrimary: 'w-full bg-primary hover:bg-primary/90',
-                    footerAction: 'hidden',
-                  },
-                }}
-                routing="hash"
-              />
-            </TabsContent>
-          </Tabs>
+        <CardContent className="flex justify-center [&_.cl-footer]:hidden">
+          <SignIn
+            appearance={{
+              elements: {
+                rootBox: 'w-full',
+                card: 'shadow-none p-0 w-full',
+                headerTitle: 'hidden',
+                headerSubtitle: 'hidden',
+                socialButtonsBlockButton: 'w-full',
+                formButtonPrimary: 'w-full bg-primary hover:bg-primary/90',
+                footer: '!hidden',
+              },
+            }}
+            routing="hash"
+          />
         </CardContent>
       </Card>
     </div>

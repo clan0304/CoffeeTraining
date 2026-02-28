@@ -25,6 +25,7 @@ import { Button } from '../../../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/Card'
 import { SimpleForm } from '../../../components/cupping/SimpleForm'
 import { ScaForm } from '../../../components/cupping/ScaForm'
+import { NewWordsReview } from '../../../components/cupping/NewWordsReview'
 import { colors } from '../../../lib/colors'
 
 interface SampleState {
@@ -314,6 +315,8 @@ export default function SoloCuppingScreen() {
             })}
           </CardContent>
         </Card>
+
+        <NewWordsReview sampleScores={samples} formType={formType} />
 
         {/* Tab pills for results */}
         <ScrollView

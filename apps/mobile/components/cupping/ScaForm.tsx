@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import type { ScaCuppingScores } from '@cuppingtraining/shared/types'
 import { calculateScaTotalScore } from '@cuppingtraining/shared/cupping'
 import { Button } from '../ui/Button'
+import { AutocompleteNotesInput } from './AutocompleteNotesInput'
 import { colors } from '../../lib/colors'
 
 interface ScaFormProps {
@@ -122,13 +123,12 @@ function AttributeBox({
       </View>
       <ScoreStepper value={score} onChange={onScoreChange} readOnly={readOnly} />
       {children}
-      <TextInput
-        style={styles.notesInput}
+      <AutocompleteNotesInput
         value={notes}
         onChangeText={onNotesChange}
         editable={!readOnly}
         placeholder="Notes..."
-        placeholderTextColor={colors.mutedLight}
+        style={styles.notesInput}
       />
     </View>
   )
@@ -188,13 +188,12 @@ function CupBox({
           </TouchableOpacity>
         ))}
       </View>
-      <TextInput
-        style={styles.notesInput}
+      <AutocompleteNotesInput
         value={notes}
         onChangeText={onNotesChange}
         editable={!readOnly}
         placeholder="Notes..."
-        placeholderTextColor={colors.mutedLight}
+        style={styles.notesInput}
       />
     </View>
   )

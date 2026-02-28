@@ -122,14 +122,9 @@ export default async function SessionSummaryPage({
         )}
 
         {/* Actions */}
-        <div className="flex gap-3">
-          <Link href={`/rooms/${session.room.id}`} className="flex-1">
-            <Button variant="outline" className="w-full">Back to Room</Button>
-          </Link>
-          <Link href="/cup-tasters" className="flex-1">
-            <Button className="w-full">Go to Lobby</Button>
-          </Link>
-        </div>
+        <Link href="/cup-tasters">
+          <Button className="w-full">Go to Lobby</Button>
+        </Link>
       </div>
     </div>
   )

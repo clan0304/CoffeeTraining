@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { SessionReportCard } from '@/components/cupping/session-report-card'
 import type { CuppingSessionDetailData, ScaCuppingScores, SimpleCuppingScores } from '@cuppingtraining/shared/types'
 
 export function SessionDetailClient({ data }: { data: CuppingSessionDetailData }) {
@@ -43,6 +44,8 @@ export function SessionDetailClient({ data }: { data: CuppingSessionDetailData }
           </div>
         </CardContent>
       </Card>
+
+      <SessionReportCard samples={samples} scores={scores} />
 
       {/* Per-sample tabs with all players' SCA forms */}
       <Tabs defaultValue={samples[0]?.sample_number.toString()}>

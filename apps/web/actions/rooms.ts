@@ -155,7 +155,25 @@ export async function inviteUserByUsername(
     .maybeSingle()
 
   if (existingInvite) {
-    return { error: `User already ${existingInvite.status === 'pending' ? 'has a pending invitation' : 'responded to invitation'}` }
+    if (existingInvite.status === 'pending') {
+      return { error: 'User already has a pending invitation' }
+    }
+    // Non-pending (accepted/declined) and user is not in room — delete stale invite so we can re-invite
+    const { data: stillInRoom } = await supabase
+      .from('room_players')
+      .select('id')
+      .eq('room_id', roomId)
+      .eq('user_id', invitedProfile.id)
+      .maybeSingle()
+
+    if (stillInRoom) {
+      return { error: 'User is already in this room' }
+    }
+
+    await supabase
+      .from('room_invitations')
+      .delete()
+      .eq('id', existingInvite.id)
   }
 
   // Check if already a player
@@ -594,6 +612,112 @@ export async function deleteRoom(
   if (error) {
     console.error('Error deleting room:', error)
     return { error: 'Failed to delete room' }
+  }
+
+  return { success: true }
+}
+
+// =============================================
+// LEAVE ROOM (non-host only)
+// =============================================
+
+export async function leaveRoom(
+  roomId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Fetch room to check host
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id')
+    .eq('id', roomId)
+    .single<{ host_id: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.host_id === profileId) {
+    return { error: 'Host cannot leave the room. Delete the room instead.' }
+  }
+
+  // Delete the player record
+  const { error } = await supabase
+    .from('room_players')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('user_id', profileId)
+
+  if (error) {
+    console.error('Error leaving room:', error)
+    return { error: 'Failed to leave room' }
+  }
+
+  // Clean up invitation so the host can re-invite this user later
+  await supabase
+    .from('room_invitations')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('invited_user_id', profileId)
+
+  return { success: true }
+}
+
+// =============================================
+// REJOIN ROOM (for in-progress games)
+// =============================================
+
+export async function rejoinRoom(
+  roomId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  // Check room exists and its status
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('status')
+    .eq('id', roomId)
+    .single<{ status: string }>()
+
+  if (!room) {
+    return { error: 'Room not found' }
+  }
+
+  if (room.status === 'waiting') {
+    return { error: 'Room is in lobby. Use the normal join flow.' }
+  }
+
+  // Check if already a member
+  const { data: existing } = await supabase
+    .from('room_players')
+    .select('id')
+    .eq('room_id', roomId)
+    .eq('user_id', profileId)
+    .maybeSingle()
+
+  if (existing) {
+    return { success: true } // Already in room
+  }
+
+  // Insert back into room_players
+  const { error } = await supabase
+    .from('room_players')
+    .insert({
+      room_id: roomId,
+      user_id: profileId,
+    })
+
+  if (error) {
+    console.error('Error rejoining room:', error)
+    return { error: 'Failed to rejoin room' }
   }
 
   return { success: true }
@@ -1669,9 +1793,8 @@ export async function finishRound(
     return { error: 'Failed to record finish time' }
   }
 
-  // Save player answers if provided
+  // Save player answers if provided (is_correct deferred until cups are checked)
   if (answers && answers.length > 0 && sessionRoundId) {
-    // Get the room's active set to look up correct answers
     const { data: roomData } = await supabase
       .from('rooms')
       .select('active_set_id')
@@ -1679,46 +1802,121 @@ export async function finishRound(
       .single<{ active_set_id: string | null }>()
 
     if (roomData?.active_set_id) {
-      const { data: setRows } = await supabase
-        .from('room_set_rows')
-        .select('row_number, odd_position')
-        .eq('set_id', roomData.active_set_id)
-        .order('row_number', { ascending: true })
-
-      if (setRows) {
-        const oddPositionMap = new Map(setRows.map((r) => [r.row_number, r.odd_position]))
-
-        const answerInserts = answers
-          .map((selectedPosition, index) => {
-            if (selectedPosition === null) return null
-            const rowNumber = index + 1
-            const correctPosition = oddPositionMap.get(rowNumber)
-            return {
-              set_id: roomData.active_set_id!,
-              session_round_id: sessionRoundId,
-              user_id: profileId,
-              row_number: rowNumber,
-              selected_position: selectedPosition,
-              is_correct: correctPosition !== undefined ? selectedPosition === correctPosition : null,
-            }
-          })
-          .filter((a): a is NonNullable<typeof a> => a !== null)
-
-        if (answerInserts.length > 0) {
-          const { error: answerError } = await supabase
-            .from('player_answers')
-            .upsert(answerInserts, { onConflict: 'session_round_id,user_id,row_number' })
-
-          if (answerError) {
-            console.error('Error saving answers:', answerError)
-            // Non-fatal — finish time is already recorded
+      const answerInserts = answers
+        .map((selectedPosition, index) => {
+          if (selectedPosition === null) return null
+          const rowNumber = index + 1
+          return {
+            set_id: roomData.active_set_id!,
+            session_round_id: sessionRoundId,
+            user_id: profileId,
+            row_number: rowNumber,
+            selected_position: selectedPosition,
+            is_correct: null, // Calculated later when cups are checked
           }
+        })
+        .filter((a): a is NonNullable<typeof a> => a !== null)
+
+      if (answerInserts.length > 0) {
+        const { error: answerError } = await supabase
+          .from('player_answers')
+          .upsert(answerInserts, { onConflict: 'session_round_id,user_id,row_number' })
+
+        if (answerError) {
+          console.error('Error saving answers:', answerError)
+          // Non-fatal — finish time is already recorded
         }
       }
     }
   }
 
   return { elapsedMs: Math.max(0, Math.round(elapsedMs)) }
+}
+
+// =============================================
+// CANCEL INVITATION (host only)
+// =============================================
+
+// =============================================
+// SAVE CORRECT ANSWERS (after checking cups)
+// =============================================
+
+export async function saveCorrectAnswers(
+  roomId: string,
+  correctAnswers: (number | null)[]
+): Promise<{ error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+
+  const supabase = createAdminSupabaseClient()
+
+  // Get the room's active set
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('active_set_id')
+    .eq('id', roomId)
+    .single<{ active_set_id: string | null }>()
+
+  if (!room?.active_set_id) {
+    return { error: 'No active set' }
+  }
+
+  const setId = room.active_set_id
+
+  // Update odd_position for each row
+  for (let i = 0; i < correctAnswers.length; i++) {
+    const position = correctAnswers[i]
+    if (position === null) continue
+    const rowNumber = i + 1
+
+    await supabase
+      .from('room_set_rows')
+      .update({ odd_position: position })
+      .eq('set_id', setId)
+      .eq('row_number', rowNumber)
+  }
+
+  // Find the active session round
+  const { data: activeSession } = await supabase
+    .from('game_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle<{ id: string }>()
+
+  if (!activeSession) return {}
+
+  const { data: activeRound } = await supabase
+    .from('session_rounds')
+    .select('id')
+    .eq('session_id', activeSession.id)
+    .is('ended_at', null)
+    .not('started_at', 'is', null)
+    .maybeSingle<{ id: string }>()
+
+  if (!activeRound) return {}
+
+  // Get all player answers for this round
+  const { data: playerAnswers } = await supabase
+    .from('player_answers')
+    .select('id, row_number, selected_position')
+    .eq('session_round_id', activeRound.id)
+
+  if (!playerAnswers || playerAnswers.length === 0) return {}
+
+  // Recalculate is_correct for each answer
+  for (const answer of playerAnswers) {
+    const correctPosition = correctAnswers[answer.row_number - 1]
+    if (correctPosition === null || correctPosition === undefined) continue
+    const isCorrect = answer.selected_position === correctPosition
+
+    await supabase
+      .from('player_answers')
+      .update({ is_correct: isCorrect })
+      .eq('id', answer.id)
+  }
+
+  return {}
 }
 
 // =============================================

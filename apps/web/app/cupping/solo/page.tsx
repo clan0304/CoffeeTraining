@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { NewWordsReview } from '@/components/cupping/new-words-review'
 import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 import type { ScaCuppingScores, SimpleCuppingScores, CuppingFormType } from '@cuppingtraining/shared/types'
 
@@ -264,6 +265,8 @@ export default function SoloCuppingPage() {
             </div>
           </CardContent>
         </Card>
+
+        <NewWordsReview sampleScores={samples} formType={formType} />
 
         {/* Detailed scores per sample */}
         <Tabs defaultValue={samples[0]?.id}>
