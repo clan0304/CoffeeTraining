@@ -23,6 +23,7 @@ interface RoundData {
     row_number: number
     selected_position: number
     is_correct: boolean | null
+    correct_position: number | null
   }>
 }
 
@@ -154,7 +155,7 @@ export function SessionRoundCard({ round }: { round: RoundData }) {
                       {round.setRows.map((row) => {
                         const answer = playerAnswers.find((a) => a.row_number === row.row_number)
                         const picked = answer?.selected_position ?? null
-                        const correctPos = row.odd_position
+                        const correctPos = answer?.correct_position ?? row.odd_position
 
                         // Build the 3 cups: positions 1, 2, 3
                         const cups = [1, 2, 3].map((pos) => {

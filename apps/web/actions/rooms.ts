@@ -1990,21 +1990,6 @@ export async function saveCorrectAnswers(
     return { error: 'No active set' }
   }
 
-  const setId = room.active_set_id
-
-  // Update odd_position for each row
-  for (let i = 0; i < correctAnswers.length; i++) {
-    const position = correctAnswers[i]
-    if (position === null) continue
-    const rowNumber = i + 1
-
-    await supabase
-      .from('room_set_rows')
-      .update({ odd_position: position })
-      .eq('set_id', setId)
-      .eq('row_number', rowNumber)
-  }
-
   // Find the active session round
   const { data: activeSession } = await supabase
     .from('game_sessions')
@@ -2025,15 +2010,16 @@ export async function saveCorrectAnswers(
 
   if (!activeRound) return {}
 
-  // Get all player answers for this round
+  // Get this player's answers for this round
   const { data: playerAnswers } = await supabase
     .from('player_answers')
     .select('id, row_number, selected_position')
     .eq('session_round_id', activeRound.id)
+    .eq('user_id', profile.id)
 
   if (!playerAnswers || playerAnswers.length === 0) return {}
 
-  // Recalculate is_correct for each answer
+  // Save correct_position and is_correct for each of this player's answers
   for (const answer of playerAnswers) {
     const correctPosition = correctAnswers[answer.row_number - 1]
     if (correctPosition === null || correctPosition === undefined) continue
@@ -2041,7 +2027,7 @@ export async function saveCorrectAnswers(
 
     await supabase
       .from('player_answers')
-      .update({ is_correct: isCorrect })
+      .update({ correct_position: correctPosition, is_correct: isCorrect })
       .eq('id', answer.id)
   }
 
@@ -2162,7 +2148,7 @@ export async function getSessionSummary(sessionId: string): Promise<{
       results: Array<{ user_id: string; elapsed_ms: number }>
       coffees: Array<{ label: string; name: string }>
       setRows: Array<{ row_number: number; pair_coffee_label: string; pair_coffee_name: string; odd_coffee_label: string; odd_coffee_name: string; odd_position: number }>
-      playerAnswers: Array<{ user_id: string; row_number: number; selected_position: number; is_correct: boolean | null }>
+      playerAnswers: Array<{ user_id: string; row_number: number; selected_position: number; is_correct: boolean | null; correct_position: number | null }>
     }>
   }
   error?: string
@@ -2245,7 +2231,7 @@ export async function getSessionSummary(sessionId: string): Promise<{
 
   let allSetRows: Array<{ set_id: string; row_number: number; pair_coffee_id: string; odd_coffee_id: string; odd_position: number }> = []
   let allCoffees: Array<{ id: string; room_id: string; label: string; name: string }> = []
-  let allPlayerAnswers: Array<{ session_round_id: string; user_id: string; row_number: number; selected_position: number; is_correct: boolean | null }> = []
+  let allPlayerAnswers: Array<{ session_round_id: string; user_id: string; row_number: number; selected_position: number; is_correct: boolean | null; correct_position: number | null }> = []
 
   if (setIds.length > 0) {
     const { data: setRows } = await supabase
@@ -2268,7 +2254,7 @@ export async function getSessionSummary(sessionId: string): Promise<{
     // Get player answers for these rounds
     const { data: playerAnswers } = await supabase
       .from('player_answers')
-      .select('session_round_id, user_id, row_number, selected_position, is_correct')
+      .select('session_round_id, user_id, row_number, selected_position, is_correct, correct_position')
       .in('session_round_id', roundIds)
 
     allPlayerAnswers = playerAnswers || []
@@ -2337,6 +2323,7 @@ export async function getSessionSummary(sessionId: string): Promise<{
           row_number: a.row_number,
           selected_position: a.selected_position,
           is_correct: a.is_correct,
+          correct_position: a.correct_position,
         })),
     }
   })
