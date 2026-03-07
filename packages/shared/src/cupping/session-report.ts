@@ -3,6 +3,7 @@ import type {
   CuppingScore,
   ScaCuppingScores,
   SimpleCuppingScores,
+  DomsCuppingScores,
   CuppingFormType,
 } from '../types/database'
 
@@ -89,6 +90,18 @@ const SCA_NOTES_KEYS: (keyof ScaCuppingScores)[] = [
   'overall_notes', 'uniformity_notes', 'clean_cup_notes', 'sweetness_notes',
 ]
 
+const DOMS_EXTRA_SCORE_ATTRS: { key: keyof DomsCuppingScores; label: string }[] = [
+  { key: 'doms_sweetness_score', label: 'Sweetness (Dom\'s)' },
+  { key: 'doms_complexity_score', label: 'Complexity (Dom\'s)' },
+  { key: 'doms_freshness_score', label: 'Freshness (Dom\'s)' },
+]
+
+const DOMS_NOTES_KEYS: string[] = [
+  ...SCA_NOTES_KEYS,
+  'doms_flavor_notes',
+  'doms_aroma_notes',
+]
+
 function parseNotes(text: string): string[] {
   return text
     .split(',')
@@ -97,10 +110,10 @@ function parseNotes(text: string): string[] {
 }
 
 function getNotesFromScore(
-  scores: ScaCuppingScores | SimpleCuppingScores,
+  scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores,
   formType: CuppingFormType
 ): string[] {
-  const keys = formType === 'simple' ? SIMPLE_NOTES_KEYS : SCA_NOTES_KEYS
+  const keys = formType === 'simple' ? SIMPLE_NOTES_KEYS : formType === 'doms' ? DOMS_NOTES_KEYS : SCA_NOTES_KEYS
   const words: string[] = []
   for (const key of keys) {
     const value = (scores as unknown as Record<string, unknown>)[key]
@@ -165,7 +178,11 @@ export function generateSessionReport(
   })
 
   // Attribute averages (across all scores)
-  const scoreAttrs = formType === 'simple' ? SIMPLE_SCORE_ATTRS : SCA_SCORE_ATTRS
+  const scoreAttrs = formType === 'simple'
+    ? SIMPLE_SCORE_ATTRS
+    : formType === 'doms'
+      ? [...SCA_SCORE_ATTRS, ...DOMS_EXTRA_SCORE_ATTRS]
+      : SCA_SCORE_ATTRS
   const attributeAverages: AttributeAverage[] = scoreAttrs.map(({ key, label }) => {
     const values: number[] = []
     for (const score of scores) {

@@ -12,7 +12,7 @@ interface ScaFormProps {
   readOnly?: boolean
 }
 
-/* ── Score slider (6.00–10.00, step 0.25) ─────────────────── */
+/* ── Score slider (0.00–10.00, step 0.25) ─────────────────── */
 function ScoreSlider({
   value,
   onChange,
@@ -22,13 +22,13 @@ function ScoreSlider({
   onChange: (v: number) => void
   readOnly?: boolean
 }) {
-  const fill = ((value - 6) / 4) * 100
+  const fill = (value / 10) * 100
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[10px] text-muted-foreground tabular-nums">6</span>
+      <span className="text-[10px] text-muted-foreground tabular-nums">0</span>
       <input
         type="range"
-        min={6}
+        min={0}
         max={10}
         step={0.25}
         value={value}

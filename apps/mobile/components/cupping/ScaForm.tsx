@@ -12,7 +12,7 @@ interface ScaFormProps {
   readOnly?: boolean
 }
 
-/* ── Score Stepper (6.00–10.00, step 0.25) ── */
+/* ── Score Stepper (0.00–10.00, step 0.25) ── */
 function ScoreStepper({
   value,
   onChange,
@@ -23,7 +23,7 @@ function ScoreStepper({
   readOnly?: boolean
 }) {
   const decrement = () => {
-    const next = Math.max(6, Math.round((value - 0.25) * 100) / 100)
+    const next = Math.max(0, Math.round((value - 0.25) * 100) / 100)
     onChange(next)
   }
   const increment = () => {
@@ -35,8 +35,8 @@ function ScoreStepper({
     <View style={styles.stepperRow}>
       <TouchableOpacity
         onPress={decrement}
-        disabled={readOnly || value <= 6}
-        style={[styles.stepperBtn, (readOnly || value <= 6) && styles.stepperDisabled]}
+        disabled={readOnly || value <= 0}
+        style={[styles.stepperBtn, (readOnly || value <= 0) && styles.stepperDisabled]}
       >
         <Text style={styles.stepperBtnText}>−</Text>
       </TouchableOpacity>

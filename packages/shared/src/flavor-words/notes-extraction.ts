@@ -1,4 +1,4 @@
-import type { ScaCuppingScores, SimpleCuppingScores, CuppingFormType } from '../types/database'
+import type { ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType } from '../types/database'
 
 const SIMPLE_NOTES_KEYS: (keyof SimpleCuppingScores)[] = [
   'aroma_notes',
@@ -22,6 +22,12 @@ const SCA_NOTES_KEYS: (keyof ScaCuppingScores)[] = [
   'sweetness_notes',
 ]
 
+const DOMS_NOTES_KEYS: string[] = [
+  ...SCA_NOTES_KEYS,
+  'doms_flavor_notes',
+  'doms_aroma_notes',
+]
+
 function parseNotes(text: string): string[] {
   return text
     .split(',')
@@ -33,10 +39,10 @@ function parseNotes(text: string): string[] {
  * Extract all unique words from a score object's notes fields.
  */
 export function extractWordsFromScores(
-  scores: ScaCuppingScores | SimpleCuppingScores,
+  scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores,
   formType: CuppingFormType
 ): string[] {
-  const keys = formType === 'simple' ? SIMPLE_NOTES_KEYS : SCA_NOTES_KEYS
+  const keys = formType === 'simple' ? SIMPLE_NOTES_KEYS : formType === 'doms' ? DOMS_NOTES_KEYS : SCA_NOTES_KEYS
   const allWords = new Set<string>()
 
   for (const key of keys) {
@@ -55,7 +61,7 @@ export function extractWordsFromScores(
  * Extract words from scores that are NOT in common or custom word lists.
  */
 export function extractNewWords(
-  scores: ScaCuppingScores | SimpleCuppingScores,
+  scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores,
   formType: CuppingFormType,
   commonWords: string[],
   customWords: string[]
@@ -73,7 +79,7 @@ export function extractNewWords(
  * Extract new words across multiple sample scores.
  */
 export function extractNewWordsFromSamples(
-  sampleScores: Array<{ scores: ScaCuppingScores | SimpleCuppingScores }>,
+  sampleScores: Array<{ scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores }>,
   formType: CuppingFormType,
   commonWords: string[],
   customWords: string[]

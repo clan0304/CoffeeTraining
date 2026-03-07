@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { DomsForm } from '@/components/cupping/doms-form'
 import { NewWordsReview } from '@/components/cupping/new-words-review'
-import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
-import type { ScaCuppingScores, SimpleCuppingScores, CuppingFormType } from '@cuppingtraining/shared/types'
+import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore, getDefaultDomsScores, calculateDomsTotalScore } from '@cuppingtraining/shared/cupping'
+import type { ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType } from '@cuppingtraining/shared/types'
 
 interface SampleState {
   id: string
@@ -30,14 +31,16 @@ export default function SoloCuppingPage() {
   const [activeTab, setActiveTab] = useState<string>('')
 
   const getDefaultScores = useCallback(() => {
-    return formType === 'simple' ? getDefaultSimpleScores() : getDefaultScaScores()
+    if (formType === 'simple') return getDefaultSimpleScores()
+    if (formType === 'doms') return getDefaultDomsScores()
+    return getDefaultScaScores()
   }, [formType])
 
   const calcTotal = useCallback(
-    (scores: ScaCuppingScores | SimpleCuppingScores) => {
-      return formType === 'simple'
-        ? calculateSimpleTotalScore(scores as SimpleCuppingScores)
-        : calculateScaTotalScore(scores as ScaCuppingScores)
+    (scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores) => {
+      if (formType === 'simple') return calculateSimpleTotalScore(scores as SimpleCuppingScores)
+      if (formType === 'doms') return calculateDomsTotalScore(scores as DomsCuppingScores)
+      return calculateScaTotalScore(scores as ScaCuppingScores)
     },
     [formType]
   )
@@ -107,6 +110,7 @@ export default function SoloCuppingPage() {
               {([
                 { value: 'simple' as const, label: 'Simple Form', description: '5 attributes rated 1-5 stars' },
                 { value: 'sca' as const, label: 'SCA Cupping Form', description: '11 attributes, 100-point scale' },
+                { value: 'doms' as const, label: "Dom's Form", description: 'SCA + Sweetness, Complexity, Freshness' },
               ]).map((option) => {
                 const isSelected = formType === option.value
                 return (
@@ -116,7 +120,11 @@ export default function SoloCuppingPage() {
                     onClick={() => {
                       if (isSelected) return
                       setFormType(option.value)
-                      const newDefault = option.value === 'simple' ? getDefaultSimpleScores() : getDefaultScaScores()
+                      const newDefault = option.value === 'simple'
+                        ? getDefaultSimpleScores()
+                        : option.value === 'doms'
+                          ? getDefaultDomsScores()
+                          : getDefaultScaScores()
                       setSamples((prev) => prev.map((s) => ({ ...s, scores: newDefault })))
                     }}
                     className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
@@ -220,6 +228,11 @@ export default function SoloCuppingPage() {
                     scores={sample.scores as SimpleCuppingScores}
                     onChange={(scores) => updateScores(sample.id, scores)}
                   />
+                ) : formType === 'doms' ? (
+                  <DomsForm
+                    scores={sample.scores as DomsCuppingScores}
+                    onChange={(scores) => updateScores(sample.id, scores)}
+                  />
                 ) : (
                   <ScaForm
                     scores={sample.scores as ScaCuppingScores}
@@ -283,6 +296,12 @@ export default function SoloCuppingPage() {
               {formType === 'simple' ? (
                 <SimpleForm
                   scores={sample.scores as SimpleCuppingScores}
+                  onChange={() => {}}
+                  readOnly
+                />
+              ) : formType === 'doms' ? (
+                <DomsForm
+                  scores={sample.scores as DomsCuppingScores}
                   onChange={() => {}}
                   readOnly
                 />

@@ -26,10 +26,11 @@ Coffee cupping/triangulation training app with multiplayer rooms.
 - Channel names and event constants live in `@cuppingtraining/shared/constants` (`packages/shared/src/constants/broadcast.ts`).
 - Room sync channel: `getRoomSyncChannel(roomId)` with `{ self: true }` — handles all game events.
 - Invitation notifications: `getUserInvitationsChannel(clerkId)` — host broadcasts `INVITATION_EVENTS.NEW_INVITATION` when inviting.
+- Friend request notifications: `getUserFriendRequestsChannel(clerkId)` — broadcasts `FRIEND_REQUEST_EVENTS.NEW_REQUEST` and `REQUEST_ACCEPTED`.
 
 ### Broadcast Events
 - Constants are defined in `packages/shared/src/constants/broadcast.ts`.
-- Cup Tasters events use `CUP_TASTERS_EVENTS.*`, Cupping events use `CUPPING_EVENTS.*`, Invitation events use `INVITATION_EVENTS.*`.
+- Cup Tasters events use `CUP_TASTERS_EVENTS.*`, Cupping events use `CUPPING_EVENTS.*`, Invitation events use `INVITATION_EVENTS.*`, Friend request events use `FRIEND_REQUEST_EVENTS.*`.
 
 | Constant | Event String | Payload | Description |
 |----------|-------------|---------|-------------|
@@ -46,6 +47,8 @@ Coffee cupping/triangulation training app with multiplayer rooms.
 | `CUPPING_EVENTS.CUPPING_ENDED` | `cupping_ended` | `{ sessionId }` | Host ended cupping session |
 | `CUPPING_EVENTS.ROOM_UPDATED` | `room_updated` | `{}` | Generic refresh trigger |
 | `INVITATION_EVENTS.NEW_INVITATION` | `new_invitation` | `{}` | Notifies invited user |
+| `FRIEND_REQUEST_EVENTS.NEW_REQUEST` | `new_friend_request` | `{}` | Notifies recipient of new friend request |
+| `FRIEND_REQUEST_EVENTS.REQUEST_ACCEPTED` | `friend_request_accepted` | `{}` | Notifies sender that request was accepted |
 
 ### Multiplayer Game Sync
 - **Countdown sync**: Host broadcasts `CUP_TASTERS_EVENTS.GAME_START` with `{ startedAt: Date.now() }`. Non-host calculates elapsed time and starts countdown from the synced number.
@@ -66,12 +69,13 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - Non-host players see "Waiting for host to start next round..." after checking their answers.
 
 ### Cupping Forms
-- Two cupping form types: **Simple** (`'simple'`) and **SCA** (`'sca'`), controlled by `CuppingFormType` union.
+- Three cupping form types: **Simple** (`'simple'`), **SCA** (`'sca'`), and **Dom's** (`'doms'`), controlled by `CuppingFormType` union.
 - **Simple Form**: Web (`apps/web/components/cupping/simple-form.tsx`), Mobile (`apps/mobile/components/cupping/SimpleForm.tsx`). 5 attributes (Aroma, Acidity, Sweetness, Body, Aftertaste) each rated 1-5 stars with notes, plus overall notes. Total score is the average (1.0-5.0).
 - **SCA Form**: Web (`apps/web/components/cupping/sca-form.tsx`), Mobile (`apps/mobile/components/cupping/ScaForm.tsx`). Standard SCA protocol with 11 attributes and 100-point scale. Mobile uses stepper buttons instead of range sliders.
-- Utilities: `@cuppingtraining/shared/cupping` (`getDefaultSimpleScores`, `calculateSimpleTotalScore`, `getDefaultScaScores`, `calculateScaTotalScore`).
-- Solo flow: user selects form type in setup phase (default: Simple). Scores use `ScaCuppingScores | SimpleCuppingScores` union. Available on both web and mobile.
-- Room flow: host selects form type in lobby. Stored in `rooms.settings` as `{ form_type: 'simple' | 'sca' }`. All players use the same form.
+- **Dom's Form**: Web (`apps/web/components/cupping/doms-form.tsx`), Mobile (`apps/mobile/components/cupping/DomsForm.tsx`). Extends SCA form with 3 extra scored attributes (Sweetness, Complexity, Freshness on 1-10 scale, displayed separately from SCA total), Roast Level (Agtron number), and general notes (F/A). `DomsCuppingScores extends ScaCuppingScores`. Total score is the same SCA 100-point calculation.
+- Utilities: `@cuppingtraining/shared/cupping` (`getDefaultSimpleScores`, `calculateSimpleTotalScore`, `getDefaultScaScores`, `calculateScaTotalScore`, `getDefaultDomsScores`, `calculateDomsTotalScore`).
+- Solo flow: user selects form type in setup phase (default: Simple). Scores use `ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores` union. Available on both web and mobile.
+- Room flow: host selects form type in lobby. Stored in `rooms.settings` as `{ form_type: 'simple' | 'sca' | 'doms' }`. All players use the same form.
 - Results/session detail views check `score.form_type` to render the correct form component.
 
 ### Flavor Words & Autocomplete
@@ -84,7 +88,7 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - Utilities: `@cuppingtraining/shared/flavor-words` (`extractWordsFromScores`, `extractNewWords`, `extractNewWordsFromSamples`).
 - Server actions: `apps/web/actions/flavor-words.ts` (`getUserFlavorWords`, `addFlavorWord`, `removeFlavorWord`).
 - Mobile API: `apps/web/app/api/mobile/flavor-words/route.ts` (GET list, POST add word).
-- Settings page (`/settings`) lets users manage their vocabulary (add/remove words).
+- Flavor Vocabulary is managed in the Dashboard Cupping tab (Common tab: read-only SCA Flavor Wheel words by category; Custom tab: add/remove user words).
 
 ### Session Report
 - `SessionReportCard` component (`apps/web/components/cupping/session-report-card.tsx`) — shown in multiplayer results view and session detail page.
@@ -108,9 +112,17 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 | `/api/mobile/onboarding/upload-photo` | POST | Multipart form data — uploads photo to Supabase storage |
 | `/api/mobile/onboarding/complete` | POST | JSON `{ username, bio, photoUrl }` — completes onboarding |
 | `/api/mobile/dashboard/cup-tasters` | GET | Returns `PlayerDashboardData` (stats, accuracy trend, coffee stats, session history) |
-| `/api/mobile/dashboard/cupping` | GET | Returns `CuppingDashboardData` (stats, session history) |
+| `/api/mobile/dashboard/cupping` | GET | Returns `CuppingDashboardData` (session history, all scored coffees) |
 | `/api/mobile/flavor-words` | GET | Returns user's custom flavor words |
 | `/api/mobile/flavor-words` | POST | JSON `{ word }` — adds word to user's vocabulary |
+| `/api/mobile/friends` | GET | Returns user's friends list |
+| `/api/mobile/friends/[friendId]` | DELETE | Removes a friend (bidirectional) |
+| `/api/mobile/friend-requests` | GET | Received pending friend requests |
+| `/api/mobile/friend-requests` | POST | JSON `{ username }` — sends friend request |
+| `/api/mobile/friend-requests/sent` | GET | Sent pending friend requests |
+| `/api/mobile/friend-requests/[id]/respond` | POST | JSON `{ accept: boolean }` — accept/decline |
+| `/api/mobile/friend-requests/[id]` | DELETE | Cancel a sent pending request |
+| `/api/mobile/users/search` | GET | `?q=xyz` — searches users by username prefix |
 
 ## Database Schema (key tables)
 - `user_profiles` — id (UUID PK), clerk_id (TEXT, Clerk user ID for auth lookup), username, bio, photo_url
@@ -125,13 +137,15 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - `cupping_samples` — session_id, sample_number, sample_label
 - `cupping_scores` — sample_id, user_id, form_type ('sca' | 'simple'), scores (JSONB), total_score
 - `user_flavor_words` — user_id (UUID FK → user_profiles.id), word (TEXT), unique on (user_id, word)
+- `user_friends` — user_id (UUID FK → user_profiles.id), friend_id (UUID FK → user_profiles.id), unique on (user_id, friend_id), check user_id != friend_id. Bidirectional rows (both A→B and B→A) created on request acceptance.
+- `user_friend_requests` — sender_id, recipient_id (UUID FKs → user_profiles.id), status ('pending'|'accepted'|'declined'), unique on (sender_id, recipient_id). Acceptance creates bidirectional `user_friends` rows.
 - **Note**: All user references are UUID FKs to `user_profiles.id`. Clerk IDs are only stored in `user_profiles.clerk_id`.
 
 ## Project Structure (Turborepo Monorepo)
 ```
 apps/
   web/                  # Next.js web app (@cuppingtraining/web)
-    actions/            # Server actions (rooms.ts, cupping.ts, onboarding.ts, flavor-words.ts)
+    actions/            # Server actions (rooms.ts, cupping.ts, onboarding.ts, flavor-words.ts, friends.ts)
     app/                # Next.js App Router pages
       (auth)/           # Auth pages (Clerk)
       api/mobile/       # REST API routes for mobile app
@@ -139,23 +153,27 @@ apps/
         onboarding/     # check-username, upload-photo, complete
         dashboard/      # cup-tasters, cupping (GET dashboard data)
         flavor-words/   # GET list, POST add word
+        friends/        # GET list, DELETE /[friendId] remove friend (bidirectional)
+        friend-requests/ # GET received, POST send, /sent GET sent, /[id]/respond POST accept/decline, /[id] DELETE cancel
+        users/search/   # GET search users by username prefix
       rooms/[id]/       # Multiplayer room page (cup tasters)
       cupping/          # Cupping mode
         solo/           # Solo cupping (form type selection + scoring)
         [id]/           # Cupping room (multiplayer cupping sessions)
         sessions/[id]/  # Session detail/results view
+      friends/          # Friends page (send/accept requests, manage friends)
       solo/             # Solo training mode (cup tasters)
       onboarding/       # User onboarding
     components/
       training/         # Timer, Countdown, AnswerSheet, TriangulationRow
       cupping/          # ScaForm, SimpleForm, AutocompleteNotesInput, FlavorWordsProvider, NewWordsReview, SessionReportCard
-      rooms/            # InvitationsList
+      rooms/            # InvitationsList, FriendInvitePicker
       onboarding/       # OnboardingForm
       ui/               # shadcn/ui components
     lib/
       api/auth.ts       # Mobile API auth helper (Bearer token → profile UUID)
       supabase/         # Supabase client helpers (client.ts, server.ts, admin.ts)
-    supabase/migrations/ # SQL migrations (001-022)
+    supabase/migrations/ # SQL migrations (001-024)
     proxy.ts            # Next.js 16 proxy (renamed from middleware.ts)
   mobile/               # Expo/React Native app (@cuppingtraining/mobile)
     app/
@@ -172,7 +190,7 @@ apps/
         cupping/        # Cupping tab
           index.tsx     # Hub (Solo / Create / Join)
           solo.tsx      # Solo cupping flow
-        dashboard/      # Dashboard tab (stats, accuracy trend, coffee stats, session history)
+        dashboard/      # Dashboard tab (session history, scored coffees, flavor vocabulary)
         profile/        # Profile tab (user info, edit username, sign out)
     components/
       training/         # Timer, Countdown, AnswerSheet, TriangulationRow
@@ -221,7 +239,32 @@ package.json            # Workspace root
 - `submitCuppingScores` — any player submits scores (accepts `ScaCuppingScores | SimpleCuppingScores`)
 - `endCuppingSession` — host ends session, resets room to waiting
 - `getCuppingResults` — returns session results with coffee names revealed
-- `getCuppingDashboard`, `getCuppingSessionDetail` — dashboard and history views
+- `getCuppingDashboard` — dashboard data including `allScoresByRank` (all user's scored coffees sorted by score)
+- `getCuppingSessionDetail` — session detail view
+
+## Key Server Actions (`apps/web/actions/friends.ts`)
+- `getFriends` — returns current user's friends list (joined with user_profiles for username/photo)
+- `removeFriend(friendId)` — bidirectional delete (A→B + B→A) + deletes related friend_request
+- `sendFriendRequest(username)` — sends friend request. Checks already-friends and pending. Returns `recipientClerkId` for broadcast
+- `getMyFriendRequests()` — received pending requests (with sender profile joined)
+- `getSentFriendRequests()` — sent pending requests (with recipient profile joined)
+- `respondToFriendRequest(requestId, accept)` — accept/decline. Accept creates bidirectional user_friends rows. Returns `senderClerkId`
+- `cancelFriendRequest(requestId)` — cancels a sent pending request
+- `searchUsers(query)` — username prefix search, excludes self, limit 10
+
+### Friends Feature
+- **Model**: Request/accept flow. Sending a request creates a `user_friend_requests` row. Acceptance creates bidirectional `user_friends` rows (A→B + B→A).
+- **Broadcast**: `getUserFriendRequestsChannel(clerkId)` — `FRIEND_REQUEST_EVENTS.NEW_REQUEST` notifies recipient, `REQUEST_ACCEPTED` notifies sender.
+- **Web Friends** (`/friends`): Dedicated page with 3-part structure — Send Request input, Incoming Requests (Accept/Decline), Sent Requests (cancel), My Friends pills (remove). Has its own navbar link.
+- **Room Invite Quick-Pick**: `FriendInvitePicker` component — uses `getFriends()` which reads `user_friends`, so only accepted friends appear.
+- **Mobile Profile**: Friends section in profile tab with same 3-part structure.
+
+### Web Dashboard
+- Dashboard has two tabs: **Cup Tasters** and **Cupping**.
+- **Cup Tasters tab**: Session History list.
+- **Cupping tab**: Session History, **All Scored Coffees** (searchable + sortable by score high/low, date new/old via dropdown), and **Flavor Vocabulary** (Common/Custom sub-tabs).
+- `CuppingDashboardData` includes `allScoresByRank: CuppingScoreEntry[]` — all user's cupping scores sorted by total_score descending.
+- Web navbar links (signed in): Cup Tasters, Cupping, Dashboard, Friends. No Settings page.
 
 ## Key Conventions
 - `apps/web/proxy.ts` is the Next.js 16 replacement for `middleware.ts`. Uses `clerkMiddleware()`. `/api/mobile(.*)` is in the public routes list — mobile API routes handle their own auth via Bearer tokens.

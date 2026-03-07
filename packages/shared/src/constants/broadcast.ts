@@ -28,3 +28,11 @@ export const CUPPING_EVENTS = {
 export const INVITATION_EVENTS = {
   NEW_INVITATION: 'new_invitation',
 } as const
+
+// Friend request broadcast events
+export const getUserFriendRequestsChannel = (clerkId: string) => `user_friend_requests_${clerkId}`
+
+export const FRIEND_REQUEST_EVENTS = {
+  NEW_REQUEST: 'new_friend_request',
+  REQUEST_ACCEPTED: 'friend_request_accepted',
+} as const

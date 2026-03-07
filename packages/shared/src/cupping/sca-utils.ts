@@ -4,21 +4,21 @@ export function getDefaultScaScores(): ScaCuppingScores {
   return {
     fragrance_dry: 0,
     fragrance_break: 0,
-    fragrance_score: 6,
+    fragrance_score: 0,
     fragrance_notes: '',
-    flavor_score: 6,
+    flavor_score: 0,
     flavor_notes: '',
-    aftertaste_score: 6,
+    aftertaste_score: 0,
     aftertaste_notes: '',
-    acidity_score: 6,
+    acidity_score: 0,
     acidity_intensity: 3,
     acidity_notes: '',
-    body_score: 6,
+    body_score: 0,
     body_level: 3,
     body_notes: '',
-    balance_score: 6,
+    balance_score: 0,
     balance_notes: '',
-    overall_score: 6,
+    overall_score: 0,
     overall_notes: '',
     uniformity_cups: [true, true, true, true, true],
     uniformity_notes: '',
@@ -74,10 +74,10 @@ export function getScoreDescriptor(total: number): string {
   return 'Below Average'
 }
 
-/** Generate the 0.25-step score options from 6.00 to 10.00 */
+/** Generate the 0.25-step score options from 0.00 to 10.00 */
 export function getScoreOptions(): number[] {
   const options: number[] = []
-  for (let i = 600; i <= 1000; i += 25) {
+  for (let i = 0; i <= 1000; i += 25) {
     options.push(i / 100)
   }
   return options

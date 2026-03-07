@@ -1,5 +1,6 @@
 export { getDefaultScaScores, calculateScaTotalScore, getScoreDescriptor, getScoreOptions } from './sca-utils'
 export { getDefaultSimpleScores, calculateSimpleTotalScore } from './simple-utils'
+export { getDefaultDomsScores, calculateDomsTotalScore } from './doms-utils'
 export { generateSessionReport } from './session-report'
 export type {
   SessionReport,

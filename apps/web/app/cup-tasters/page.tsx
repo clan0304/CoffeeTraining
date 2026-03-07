@@ -83,42 +83,42 @@ export default async function CupTastersPage() {
 
         <div className="grid gap-4 md:grid-cols-3">
           <Link href="/solo">
-            <Card className="cursor-pointer hover:bg-accent transition-colors h-full">
-              <CardHeader>
+            <Card className="cursor-pointer hover:bg-accent transition-colors h-48 flex flex-col">
+              <CardHeader className="flex-1">
                 <CardTitle className="text-lg">Solo Practice</CardTitle>
                 <CardDescription>
                   Quick practice with timer and answer sheet
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <Button variant="outline" className="w-full">Start</Button>
               </CardContent>
             </Card>
           </Link>
 
           <Link href="/rooms/create">
-            <Card className="cursor-pointer hover:bg-accent transition-colors h-full">
-              <CardHeader>
+            <Card className="cursor-pointer hover:bg-accent transition-colors h-48 flex flex-col">
+              <CardHeader className="flex-1">
                 <CardTitle className="text-lg">Create Room</CardTitle>
                 <CardDescription>
                   Host a training session for your team
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <Button className="w-full">Create</Button>
               </CardContent>
             </Card>
           </Link>
 
           <Link href="/rooms/join">
-            <Card className="cursor-pointer hover:bg-accent transition-colors h-full">
-              <CardHeader>
+            <Card className="cursor-pointer hover:bg-accent transition-colors h-48 flex flex-col">
+              <CardHeader className="flex-1">
                 <CardTitle className="text-lg">Join Room</CardTitle>
                 <CardDescription>
                   Enter a room code to join a session
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 <Button variant="secondary" className="w-full">Join</Button>
               </CardContent>
             </Card>

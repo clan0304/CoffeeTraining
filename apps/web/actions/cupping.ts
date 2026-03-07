@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { createAdminSupabaseClient } from '@/lib/supabase/admin'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, CuppingFormType, CuppingDashboardData, CuppingSessionDetailData } from '@cuppingtraining/shared/types'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingDashboardData, CuppingSessionDetailData } from '@cuppingtraining/shared/types'
 
 // =============================================
 // HELPER: Resolve Clerk auth to user_profiles UUID
@@ -311,7 +311,7 @@ export async function startCuppingSession(
 
 export async function submitCuppingScores(
   roomId: string,
-  scores: Array<{ sampleNumber: number; scores: ScaCuppingScores | SimpleCuppingScores; totalScore: number }>
+  scores: Array<{ sampleNumber: number; scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores; totalScore: number }>
 ): Promise<{ success?: boolean; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
@@ -526,7 +526,7 @@ export async function getCuppingResults(
 
   const scoresWithDetails = (scores || []).map((s) => ({
     ...s,
-    scores: s.scores as unknown as ScaCuppingScores | SimpleCuppingScores,
+    scores: s.scores as unknown as ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores,
     username: usernameMap.get(s.user_id) || 'Unknown',
     sampleNumber: sampleNumberMap.get(s.sample_id) || 0,
   }))
@@ -571,6 +571,7 @@ export async function getCuppingDashboard(): Promise<{
           lowestScore: null,
         },
         sessionHistory: [],
+        allScoresByRank: [],
       },
     }
   }
@@ -673,7 +674,27 @@ export async function getCuppingDashboard(): Promise<{
     }
   })
 
-  return { data: { overallStats, sessionHistory } }
+  // Build all scores by rank (descending by total_score)
+  const sampleMap = new Map(samples.map((s) => [s.id, s]))
+  const sessionMap = new Map(sessions.map((s) => [s.id, s]))
+
+  const allScoresByRank = userScores
+    .filter((s): s is typeof s & { total_score: number } => s.total_score !== null)
+    .sort((a, b) => b.total_score - a.total_score)
+    .map((score) => {
+      const sample = sampleMap.get(score.sample_id)
+      const session = sample ? sessionMap.get(sample.session_id) : null
+      const room = session?.room_id ? roomMap.get(session.room_id) : null
+      return {
+        sampleLabel: sample?.sample_label || `Sample ${sample?.sample_number || '?'}`,
+        totalScore: score.total_score,
+        sessionId: sample?.session_id || '',
+        roomName: room?.name || null,
+        createdAt: session?.created_at || '',
+      }
+    })
+
+  return { data: { overallStats, sessionHistory, allScoresByRank } }
 }
 
 // =============================================
@@ -778,7 +799,7 @@ export async function getCuppingSessionDetail(
 
   const scoresWithDetails = (scores || []).map((s) => ({
     ...s,
-    scores: s.scores as unknown as ScaCuppingScores | SimpleCuppingScores,
+    scores: s.scores as unknown as ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores,
     username: usernameMap.get(s.user_id) || 'Unknown',
     sampleNumber: sampleNumberMap.get(s.sample_id) || 0,
   }))

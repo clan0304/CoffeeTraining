@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { DomsForm } from '@/components/cupping/doms-form'
 import { SessionReportCard } from '@/components/cupping/session-report-card'
-import type { CuppingSessionDetailData, ScaCuppingScores, SimpleCuppingScores } from '@cuppingtraining/shared/types'
+import type { CuppingSessionDetailData, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores } from '@cuppingtraining/shared/types'
 
 export function SessionDetailClient({ data }: { data: CuppingSessionDetailData }) {
   const { samples, scores } = data
@@ -83,6 +84,12 @@ export function SessionDetailClient({ data }: { data: CuppingSessionDetailData }
                       {score.form_type === 'simple' ? (
                         <SimpleForm
                           scores={score.scores as SimpleCuppingScores}
+                          onChange={() => {}}
+                          readOnly
+                        />
+                      ) : score.form_type === 'doms' ? (
+                        <DomsForm
+                          scores={score.scores as DomsCuppingScores}
                           onChange={() => {}}
                           readOnly
                         />

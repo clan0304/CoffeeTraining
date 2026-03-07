@@ -24,6 +24,24 @@ interface ProfileData {
   email: string | null
 }
 
+interface FriendData {
+  friend_id: string
+  username: string
+  photo_url: string | null
+}
+
+interface IncomingRequest {
+  id: string
+  sender_username: string
+  sender_photo_url: string | null
+}
+
+interface SentRequest {
+  id: string
+  recipient_username: string
+  recipient_photo_url: string | null
+}
+
 export default function ProfileTab() {
   const { signOut } = useAuth()
   const { user } = useUser()
@@ -43,6 +61,19 @@ export default function ProfileTab() {
   const [flavorWords, setFlavorWords] = useState<string[]>([])
   const [flavorDraft, setFlavorDraft] = useState('')
   const [addingFlavor, setAddingFlavor] = useState(false)
+
+  // Friends state
+  const [friends, setFriends] = useState<FriendData[]>([])
+  const [friendDraft, setFriendDraft] = useState('')
+  const [sendingRequest, setSendingRequest] = useState(false)
+  const [friendError, setFriendError] = useState<string | null>(null)
+  const [friendSuccess, setFriendSuccess] = useState<string | null>(null)
+
+  // Friend requests state
+  const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([])
+  const [sentRequests, setSentRequests] = useState<SentRequest[]>([])
+  const [respondingIds, setRespondingIds] = useState<Set<string>>(new Set())
+  const [cancellingIds, setCancellingIds] = useState<Set<string>>(new Set())
 
   const fetchProfile = useCallback(() => {
     setLoading(true)
@@ -158,6 +189,111 @@ export default function ProfileTab() {
         setFlavorWords((prev) => prev.filter((w) => w !== word))
       } catch {
         Alert.alert('Error', 'Failed to remove word')
+      }
+    },
+    [apiFetch]
+  )
+
+  // Friends handlers
+  const fetchFriends = useCallback(() => {
+    apiFetch<{ friends: FriendData[] }>('/friends')
+      .then((res) => setFriends(res.friends))
+      .catch(() => {})
+  }, [apiFetch])
+
+  const fetchIncomingRequests = useCallback(() => {
+    apiFetch<{ requests: IncomingRequest[] }>('/friend-requests')
+      .then((res) => setIncomingRequests(res.requests))
+      .catch(() => {})
+  }, [apiFetch])
+
+  const fetchSentRequests = useCallback(() => {
+    apiFetch<{ requests: SentRequest[] }>('/friend-requests/sent')
+      .then((res) => setSentRequests(res.requests))
+      .catch(() => {})
+  }, [apiFetch])
+
+  useEffect(() => {
+    fetchFriends()
+  }, [fetchFriends])
+
+  useEffect(() => {
+    fetchIncomingRequests()
+  }, [fetchIncomingRequests])
+
+  useEffect(() => {
+    fetchSentRequests()
+  }, [fetchSentRequests])
+
+  const handleSendRequest = useCallback(async () => {
+    const username = friendDraft.trim()
+    if (!username) return
+    setSendingRequest(true)
+    setFriendError(null)
+    setFriendSuccess(null)
+    try {
+      await apiFetch('/friend-requests', { method: 'POST', json: { username } })
+      setFriendSuccess(`Request sent to @${username}`)
+      setFriendDraft('')
+      fetchSentRequests()
+    } catch (e) {
+      setFriendError(e instanceof Error ? e.message : 'Failed to send request')
+    } finally {
+      setSendingRequest(false)
+    }
+  }, [friendDraft, apiFetch, fetchSentRequests])
+
+  const handleRespondToRequest = useCallback(
+    async (requestId: string, accept: boolean) => {
+      setRespondingIds((prev) => new Set(prev).add(requestId))
+      try {
+        await apiFetch(`/friend-requests/${requestId}/respond`, {
+          method: 'POST',
+          json: { accept },
+        })
+        setIncomingRequests((prev) => prev.filter((r) => r.id !== requestId))
+        if (accept) {
+          fetchFriends()
+        }
+      } catch {
+        Alert.alert('Error', 'Failed to respond to request')
+      } finally {
+        setRespondingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(requestId)
+          return next
+        })
+      }
+    },
+    [apiFetch, fetchFriends]
+  )
+
+  const handleCancelRequest = useCallback(
+    async (requestId: string) => {
+      setCancellingIds((prev) => new Set(prev).add(requestId))
+      try {
+        await apiFetch(`/friend-requests/${requestId}`, { method: 'DELETE' })
+        setSentRequests((prev) => prev.filter((r) => r.id !== requestId))
+      } catch {
+        Alert.alert('Error', 'Failed to cancel request')
+      } finally {
+        setCancellingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(requestId)
+          return next
+        })
+      }
+    },
+    [apiFetch]
+  )
+
+  const handleRemoveFriend = useCallback(
+    async (friendId: string) => {
+      try {
+        await apiFetch(`/friends/${friendId}`, { method: 'DELETE' })
+        setFriends((prev) => prev.filter((f) => f.friend_id !== friendId))
+      } catch {
+        Alert.alert('Error', 'Failed to remove friend')
       }
     },
     [apiFetch]
@@ -357,6 +493,135 @@ export default function ProfileTab() {
                     </TouchableOpacity>
                   </View>
                 ))}
+              </View>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Friends */}
+        <Card>
+          <CardContent style={styles.infoContent}>
+            <Text style={styles.sectionTitle}>Friends</Text>
+            <Text style={styles.sectionDescription}>
+              Send a friend request by username
+            </Text>
+
+            {/* Send Request */}
+            <View style={styles.flavorAddRow}>
+              <TextInput
+                style={styles.flavorInput}
+                value={friendDraft}
+                onChangeText={(text) => {
+                  setFriendDraft(text)
+                  setFriendError(null)
+                  setFriendSuccess(null)
+                }}
+                placeholder="Enter username..."
+                placeholderTextColor={colors.mutedLight}
+                autoCapitalize="none"
+                autoCorrect={false}
+                onSubmitEditing={handleSendRequest}
+                returnKeyType="done"
+              />
+              <TouchableOpacity
+                onPress={handleSendRequest}
+                disabled={sendingRequest || !friendDraft.trim()}
+                style={[
+                  styles.flavorAddBtn,
+                  (sendingRequest || !friendDraft.trim()) && styles.flavorAddBtnDisabled,
+                ]}
+              >
+                <Text style={styles.flavorAddBtnText}>
+                  {sendingRequest ? '...' : 'Send'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {friendError ? (
+              <Text style={styles.friendErrorText}>{friendError}</Text>
+            ) : null}
+            {friendSuccess ? (
+              <Text style={styles.friendSuccessText}>{friendSuccess}</Text>
+            ) : null}
+
+            {/* Incoming Requests */}
+            {incomingRequests.length > 0 && (
+              <View style={styles.requestsSection}>
+                <Text style={styles.subsectionTitle}>Incoming Requests</Text>
+                {incomingRequests.map((req) => (
+                  <View key={req.id} style={styles.requestRow}>
+                    <Text style={styles.requestUsername}>@{req.sender_username}</Text>
+                    <View style={styles.requestActions}>
+                      <TouchableOpacity
+                        onPress={() => handleRespondToRequest(req.id, false)}
+                        disabled={respondingIds.has(req.id)}
+                        style={styles.declineBtn}
+                      >
+                        <Text style={styles.declineBtnText}>
+                          {respondingIds.has(req.id) ? '...' : 'Decline'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleRespondToRequest(req.id, true)}
+                        disabled={respondingIds.has(req.id)}
+                        style={[
+                          styles.acceptBtn,
+                          respondingIds.has(req.id) && styles.flavorAddBtnDisabled,
+                        ]}
+                      >
+                        <Text style={styles.acceptBtnText}>
+                          {respondingIds.has(req.id) ? '...' : 'Accept'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Sent Requests */}
+            {sentRequests.length > 0 && (
+              <View style={styles.requestsSection}>
+                <Text style={styles.subsectionTitle}>Sent Requests</Text>
+                <View style={styles.flavorPills}>
+                  {sentRequests.map((req) => (
+                    <View key={req.id} style={styles.flavorPill}>
+                      <Text style={styles.flavorPillText}>@{req.recipient_username}</Text>
+                      <Text style={styles.pendingLabel}>pending</Text>
+                      <TouchableOpacity
+                        onPress={() => handleCancelRequest(req.id)}
+                        disabled={cancellingIds.has(req.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.flavorPillRemove}>&times;</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Friends List */}
+            {friends.length === 0 ? (
+              <Text style={styles.flavorEmpty}>
+                No friends yet. Send a request to get started.
+              </Text>
+            ) : (
+              <View style={styles.requestsSection}>
+                <Text style={styles.subsectionTitle}>My Friends</Text>
+                <View style={styles.flavorPills}>
+                  {friends.map((friend) => (
+                    <View key={friend.friend_id} style={styles.flavorPill}>
+                      <Text style={styles.flavorPillText}>@{friend.username}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveFriend(friend.friend_id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.flavorPillRemove}>&times;</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
               </View>
             )}
           </CardContent>
@@ -564,5 +829,69 @@ const styles = StyleSheet.create({
     color: colors.muted,
     lineHeight: 18,
     marginLeft: 2,
+  },
+  friendErrorText: {
+    fontSize: 13,
+    color: colors.error,
+    marginBottom: 8,
+  },
+  friendSuccessText: {
+    fontSize: 13,
+    color: colors.success,
+    marginBottom: 8,
+  },
+  requestsSection: {
+    marginTop: 12,
+    gap: 8,
+  },
+  subsectionTitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.muted,
+  },
+  requestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.borderLight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  requestUsername: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.foreground,
+  },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  declineBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  declineBtnText: {
+    fontSize: 13,
+    color: colors.muted,
+    fontWeight: '500',
+  },
+  acceptBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  acceptBtnText: {
+    fontSize: 13,
+    color: colors.primaryForeground,
+    fontWeight: '500',
+  },
+  pendingLabel: {
+    fontSize: 11,
+    color: colors.muted,
   },
 })

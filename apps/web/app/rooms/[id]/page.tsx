@@ -37,6 +37,7 @@ import {
   updateCoffee,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
+import { FriendInvitePicker } from '@/components/rooms/friend-invite-picker'
 import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, RoomSet, RoomSetRow } from '@cuppingtraining/shared/types'
 
 type RoomWithDetails = Room & {
@@ -1095,7 +1096,39 @@ export default function RoomPage() {
               <CardTitle className="text-lg">Invite Player</CardTitle>
               <CardDescription>Invite someone by their username</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <FriendInvitePicker
+                playerIds={room.players.map((p) => p.user_id)}
+                pendingInviteIds={pendingInvitations.map((i) => i.invited_user_id)}
+                onInvite={(username) => {
+                  setInviteUsername(username)
+                  setInviteError(null)
+                  setInviteSuccess(null)
+                  // Trigger invite directly
+                  setInviteLoading(true)
+                  inviteUserByUsername(roomId, username).then((result) => {
+                    if (result.error) {
+                      setInviteError(result.error)
+                    } else {
+                      setInviteSuccess(`Invitation sent to @${username}`)
+                      setInviteUsername('')
+                      loadRoom()
+                      roomChannel?.send({ type: 'broadcast', event: CUP_TASTERS_EVENTS.ROOM_UPDATED, payload: {} })
+                      if (result.invitedClerkId) {
+                        const notifyChannel = realtime.channel(getUserInvitationsChannel(result.invitedClerkId))
+                        notifyChannel.subscribe((status) => {
+                          if (status === 'SUBSCRIBED') {
+                            notifyChannel.send({ type: 'broadcast', event: INVITATION_EVENTS.NEW_INVITATION, payload: {} })
+                            setTimeout(() => realtime.removeChannel(notifyChannel), 1000)
+                          }
+                        })
+                      }
+                    }
+                    setInviteLoading(false)
+                  })
+                }}
+                disabled={inviteLoading}
+              />
               <form onSubmit={handleInvite} className="space-y-3">
                 <div className="flex gap-2">
                   <Input

@@ -13,6 +13,7 @@ import * as Crypto from 'expo-crypto'
 import type {
   ScaCuppingScores,
   SimpleCuppingScores,
+  DomsCuppingScores,
   CuppingFormType,
 } from '@cuppingtraining/shared/types'
 import {
@@ -20,18 +21,21 @@ import {
   calculateScaTotalScore,
   getDefaultSimpleScores,
   calculateSimpleTotalScore,
+  getDefaultDomsScores,
+  calculateDomsTotalScore,
 } from '@cuppingtraining/shared/cupping'
 import { Button } from '../../../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/Card'
 import { SimpleForm } from '../../../components/cupping/SimpleForm'
 import { ScaForm } from '../../../components/cupping/ScaForm'
+import { DomsForm } from '../../../components/cupping/DomsForm'
 import { NewWordsReview } from '../../../components/cupping/NewWordsReview'
 import { colors } from '../../../lib/colors'
 
 interface SampleState {
   id: string
   label: string
-  scores: ScaCuppingScores | SimpleCuppingScores
+  scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores
 }
 
 type PageState = 'setup' | 'scoring' | 'results'
@@ -46,16 +50,20 @@ export default function SoloCuppingScreen() {
   const [activeTabIndex, setActiveTabIndex] = useState(0)
 
   const getDefaultScores = useCallback(
-    () =>
-      formType === 'simple' ? getDefaultSimpleScores() : getDefaultScaScores(),
+    () => {
+      if (formType === 'simple') return getDefaultSimpleScores()
+      if (formType === 'doms') return getDefaultDomsScores()
+      return getDefaultScaScores()
+    },
     [formType]
   )
 
   const calcTotal = useCallback(
-    (scores: ScaCuppingScores | SimpleCuppingScores) =>
-      formType === 'simple'
-        ? calculateSimpleTotalScore(scores as SimpleCuppingScores)
-        : calculateScaTotalScore(scores as ScaCuppingScores),
+    (scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores) => {
+      if (formType === 'simple') return calculateSimpleTotalScore(scores as SimpleCuppingScores)
+      if (formType === 'doms') return calculateDomsTotalScore(scores as DomsCuppingScores)
+      return calculateScaTotalScore(scores as ScaCuppingScores)
+    },
     [formType]
   )
 
@@ -78,7 +86,7 @@ export default function SoloCuppingScreen() {
   }, [])
 
   const updateScores = useCallback(
-    (id: string, scores: ScaCuppingScores | SimpleCuppingScores) => {
+    (id: string, scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores) => {
       setSamples((prev) =>
         prev.map((s) => (s.id === id ? { ...s, scores } : s))
       )
@@ -138,6 +146,11 @@ export default function SoloCuppingScreen() {
                   label: 'SCA Cupping Form',
                   desc: '11 attributes, 100-point scale',
                 },
+                {
+                  value: 'doms' as const,
+                  label: "Dom's Form",
+                  desc: 'SCA + Sweetness, Complexity, Freshness',
+                },
               ] as const).map((option) => {
                 const isSelected = formType === option.value
                 return (
@@ -149,7 +162,9 @@ export default function SoloCuppingScreen() {
                       const newDefault =
                         option.value === 'simple'
                           ? getDefaultSimpleScores()
-                          : getDefaultScaScores()
+                          : option.value === 'doms'
+                            ? getDefaultDomsScores()
+                            : getDefaultScaScores()
                       setSamples((prev) =>
                         prev.map((s) => ({ ...s, scores: newDefault }))
                       )
@@ -275,6 +290,11 @@ export default function SoloCuppingScreen() {
                 scores={activeSample.scores as SimpleCuppingScores}
                 onChange={(scores) => updateScores(activeSample.id, scores)}
               />
+            ) : formType === 'doms' ? (
+              <DomsForm
+                scores={activeSample.scores as DomsCuppingScores}
+                onChange={(scores) => updateScores(activeSample.id, scores)}
+              />
             ) : (
               <ScaForm
                 scores={activeSample.scores as ScaCuppingScores}
@@ -350,6 +370,12 @@ export default function SoloCuppingScreen() {
           (formType === 'simple' ? (
             <SimpleForm
               scores={activeSample.scores as SimpleCuppingScores}
+              onChange={() => {}}
+              readOnly
+            />
+          ) : formType === 'doms' ? (
+            <DomsForm
+              scores={activeSample.scores as DomsCuppingScores}
               onChange={() => {}}
               readOnly
             />

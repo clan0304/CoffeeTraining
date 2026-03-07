@@ -12,9 +12,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
+import { DomsForm } from '@/components/cupping/doms-form'
 import { NewWordsReview } from '@/components/cupping/new-words-review'
 import { SessionReportCard } from '@/components/cupping/session-report-card'
-import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
+import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore, getDefaultDomsScores, calculateDomsTotalScore } from '@cuppingtraining/shared/cupping'
 import {
   getCuppingRoomDetails,
   startCuppingSession,
@@ -35,7 +36,8 @@ import {
   updateCoffee,
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUPPING_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, CuppingFormType, CuppingSettings } from '@cuppingtraining/shared/types'
+import { FriendInvitePicker } from '@/components/rooms/friend-invite-picker'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingSettings } from '@cuppingtraining/shared/types'
 
 type RoomWithDetails = Room & {
   players: Array<RoomPlayer & { profile: PublicProfile | null }>
@@ -129,7 +131,7 @@ export default function CuppingRoomPage() {
   // Initialize scoring state
   const initScoring = (count: number) => {
     const ft: CuppingFormType = (room?.settings as CuppingSettings)?.form_type || 'sca'
-    const defaultScores = ft === 'simple' ? getDefaultSimpleScores() : getDefaultScaScores()
+    const defaultScores = ft === 'simple' ? getDefaultSimpleScores() : ft === 'doms' ? getDefaultDomsScores() : getDefaultScaScores()
     const scores: SampleScoreState[] = []
     for (let i = 1; i <= count; i++) {
       scores.push({ sampleNumber: i, scores: defaultScores })
@@ -363,7 +365,9 @@ export default function CuppingRoomPage() {
       scores: s.scores,
       totalScore: roomFormType === 'simple'
         ? calculateSimpleTotalScore(s.scores as SimpleCuppingScores)
-        : calculateScaTotalScore(s.scores as ScaCuppingScores),
+        : roomFormType === 'doms'
+          ? calculateDomsTotalScore(s.scores as DomsCuppingScores)
+          : calculateScaTotalScore(s.scores as ScaCuppingScores),
     }))
 
     const result = await submitCuppingScores(roomId, scoresToSubmit)
@@ -594,6 +598,12 @@ export default function CuppingRoomPage() {
                               onChange={() => {}}
                               readOnly
                             />
+                          ) : score.form_type === 'doms' ? (
+                            <DomsForm
+                              scores={score.scores as DomsCuppingScores}
+                              onChange={() => {}}
+                              readOnly
+                            />
                           ) : (
                             <ScaForm
                               scores={score.scores as ScaCuppingScores}
@@ -743,7 +753,9 @@ export default function CuppingRoomPage() {
               {sampleScores.map((sample) => {
                 const total = roomFormType === 'simple'
                   ? calculateSimpleTotalScore(sample.scores as SimpleCuppingScores)
-                  : calculateScaTotalScore(sample.scores as ScaCuppingScores)
+                  : roomFormType === 'doms'
+                    ? calculateDomsTotalScore(sample.scores as DomsCuppingScores)
+                    : calculateScaTotalScore(sample.scores as ScaCuppingScores)
                 return (
                   <TabsTrigger
                     key={sample.sampleNumber}
@@ -762,6 +774,11 @@ export default function CuppingRoomPage() {
                 {roomFormType === 'simple' ? (
                   <SimpleForm
                     scores={sample.scores as SimpleCuppingScores}
+                    onChange={(scores) => updateSampleScores(sample.sampleNumber, scores)}
+                  />
+                ) : roomFormType === 'doms' ? (
+                  <DomsForm
+                    scores={sample.scores as DomsCuppingScores}
                     onChange={(scores) => updateSampleScores(sample.sampleNumber, scores)}
                   />
                 ) : (
@@ -844,7 +861,38 @@ export default function CuppingRoomPage() {
               <CardTitle className="text-lg">Invite Player</CardTitle>
               <CardDescription>Invite someone by their username</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <FriendInvitePicker
+                playerIds={room.players.map((p) => p.user_id)}
+                pendingInviteIds={pendingInvitations.map((i) => i.invited_user_id)}
+                onInvite={(username) => {
+                  setInviteUsername(username)
+                  setInviteError(null)
+                  setInviteSuccess(null)
+                  setInviteLoading(true)
+                  inviteUserByUsername(roomId, username).then((result) => {
+                    if (result.error) {
+                      setInviteError(result.error)
+                    } else {
+                      setInviteSuccess(`Invitation sent to @${username}`)
+                      setInviteUsername('')
+                      loadRoom()
+                      broadcastUpdate()
+                      if (result.invitedClerkId) {
+                        const notifyChannel = realtime.channel(getUserInvitationsChannel(result.invitedClerkId))
+                        notifyChannel.subscribe((status) => {
+                          if (status === 'SUBSCRIBED') {
+                            notifyChannel.send({ type: 'broadcast', event: INVITATION_EVENTS.NEW_INVITATION, payload: {} })
+                            setTimeout(() => realtime.removeChannel(notifyChannel), 1000)
+                          }
+                        })
+                      }
+                    }
+                    setInviteLoading(false)
+                  })
+                }}
+                disabled={inviteLoading}
+              />
               <form onSubmit={handleInvite} className="space-y-3">
                 <div className="flex gap-2">
                   <Input
@@ -1068,6 +1116,7 @@ export default function CuppingRoomPage() {
               const formOptions: Array<{ value: CuppingFormType; label: string; description: string }> = [
                 { value: 'simple', label: 'Simple Form', description: '5 attributes rated 1-5 stars' },
                 { value: 'sca', label: 'SCA Cupping Form', description: 'Standard SCA protocol with 11 attributes and 100-point scale' },
+                { value: 'doms', label: "Dom's Form", description: 'SCA + Sweetness, Complexity, Freshness' },
               ]
 
               return (

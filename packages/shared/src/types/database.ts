@@ -36,6 +36,50 @@ export interface PublicProfile {
 }
 
 // =============================================
+// USER FRIENDS
+// =============================================
+
+export interface UserFriend {
+  id: string
+  user_id: string
+  friend_id: string
+  created_at: string
+}
+
+export interface FriendProfile {
+  id: string           // user_friends row id
+  friend_id: string    // user_profiles.id
+  username: string
+  photo_url: string | null
+  created_at: string
+}
+
+// =============================================
+// FRIEND REQUESTS
+// =============================================
+
+export type FriendRequestStatus = 'pending' | 'accepted' | 'declined'
+
+export interface FriendRequest {
+  id: string
+  sender_id: string
+  recipient_id: string
+  status: FriendRequestStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface FriendRequestWithSender extends FriendRequest {
+  sender_username: string
+  sender_photo_url: string | null
+}
+
+export interface FriendRequestWithRecipient extends FriendRequest {
+  recipient_username: string
+  recipient_photo_url: string | null
+}
+
+// =============================================
 // ROOMS
 // =============================================
 
@@ -262,7 +306,7 @@ export interface PlayerDashboardData {
 // CUPPING
 // =============================================
 
-export type CuppingFormType = 'sca' | 'simple'
+export type CuppingFormType = 'sca' | 'simple' | 'doms'
 
 export interface ScaCuppingScores {
   fragrance_dry: number
@@ -309,6 +353,15 @@ export interface SimpleCuppingScores {
   overall_notes: string
 }
 
+export interface DomsCuppingScores extends ScaCuppingScores {
+  doms_sweetness_score: number   // 1-10
+  doms_complexity_score: number  // 1-10
+  doms_freshness_score: number   // 1-10
+  doms_roast_level: number       // Agtron, informational
+  doms_flavor_notes: string
+  doms_aroma_notes: string
+}
+
 export interface CuppingSession {
   id: string
   user_id: string
@@ -331,7 +384,7 @@ export interface CuppingScore {
   sample_id: string
   user_id: string
   form_type: CuppingFormType
-  scores: ScaCuppingScores | SimpleCuppingScores
+  scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores
   total_score: number | null
   notes: string | null
   created_at: string
@@ -359,9 +412,18 @@ export interface CuppingDashboardSessionHistory {
   player_count: number
 }
 
+export interface CuppingScoreEntry {
+  sampleLabel: string
+  totalScore: number
+  sessionId: string
+  roomName: string | null
+  createdAt: string
+}
+
 export interface CuppingDashboardData {
   overallStats: CuppingDashboardOverallStats
   sessionHistory: CuppingDashboardSessionHistory[]
+  allScoresByRank: CuppingScoreEntry[]
 }
 
 export interface CuppingSessionDetailData {
