@@ -28,6 +28,7 @@ export async function GET(request: Request) {
           lowestScore: null,
         },
         sessionHistory: [],
+        allScoresByRank: [],
       } satisfies CuppingDashboardData)
     }
 
@@ -129,9 +130,30 @@ export async function GET(request: Request) {
       }
     })
 
+    // Build all scores by rank (descending by total_score)
+    const sampleMap = new Map(samples.map((s) => [s.id, s]))
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]))
+
+    const allScoresByRank = userScores
+      .filter((s): s is typeof s & { total_score: number } => s.total_score !== null)
+      .sort((a, b) => b.total_score - a.total_score)
+      .map((score) => {
+        const sample = sampleMap.get(score.sample_id)
+        const session = sample ? sessionMap.get(sample.session_id) : null
+        const room = session?.room_id ? roomMap.get(session.room_id) : null
+        return {
+          sampleLabel: sample?.sample_label || `Sample ${sample?.sample_number || '?'}`,
+          totalScore: score.total_score,
+          sessionId: sample?.session_id || '',
+          roomName: room?.name || null,
+          createdAt: session?.created_at || '',
+        }
+      })
+
     return NextResponse.json({
       overallStats,
       sessionHistory,
+      allScoresByRank,
     } satisfies CuppingDashboardData)
   } catch (res) {
     if (res instanceof Response) return res
