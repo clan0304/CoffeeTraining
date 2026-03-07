@@ -75,7 +75,7 @@ export default async function HomePage() {
                     Identify the odd cup among three samples and sharpen your sensory perception.
                   </p>
                   
-                  <div className="flex flex-wrap gap-2 mb-6">
+                  <div className="hidden md:flex flex-wrap gap-2 mb-6">
                     <span className="px-3 py-1 text-xs bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 rounded-full">Solo Practice</span>
                     <span className="px-3 py-1 text-xs bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 rounded-full">Team Challenges</span>
                     <span className="px-3 py-1 text-xs bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 rounded-full">Real-time Scoring</span>
@@ -114,7 +114,7 @@ export default async function HomePage() {
                     Score fragrance, flavor, acidity, body, and more with standardized forms.
                   </p>
                   
-                  <div className="flex flex-wrap gap-2 mb-6">
+                  <div className="hidden md:flex flex-wrap gap-2 mb-6">
                     <span className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full">SCA Standards</span>
                     <span className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full">Score Analysis</span>
                     <span className="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full">Flavor Vocabulary</span>

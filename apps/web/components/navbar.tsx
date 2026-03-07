@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useUser, SignOutButton, SignInButton } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { PersonIcon, DashboardIcon, ExitIcon } from '@radix-ui/react-icons'
+import { useUserProfile } from '@/hooks/useUserProfile'
 
 interface ConfirmSignOutModalProps {
   isOpen: boolean
@@ -42,6 +43,7 @@ const HIDDEN_PATHS = ['/auth', '/onboarding', '/solo', '/rooms/', '/cupping/']
 
 export function Navbar() {
   const { isSignedIn, isLoaded, user } = useUser()
+  const { profile } = useUserProfile()
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
@@ -127,7 +129,9 @@ export function Navbar() {
               {profileMenuOpen && (
                 <div className="absolute right-0 mt-2 w-56 bg-background border rounded-md shadow-lg z-50">
                   <div className="p-3 border-b">
-                    <p className="font-medium text-sm truncate">{user?.username || user?.firstName || 'User'}</p>
+                    <p className="font-medium text-sm truncate">
+                      {profile?.username ? `@${profile.username}` : (user?.firstName || 'User')}
+                    </p>
                   </div>
                   <div className="p-1">
                     <Link
@@ -202,7 +206,9 @@ export function Navbar() {
           {isSignedIn ? (
             <>
               <div className="px-3 py-2 border-t border-b">
-                <p className="font-medium text-sm truncate">{user?.username || user?.firstName || 'User'}</p>
+                <p className="font-medium text-sm truncate">
+                  {profile?.username ? `@${profile.username}` : (user?.firstName || 'User')}
+                </p>
               </div>
               <Link
                 href="/dashboard"
