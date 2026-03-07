@@ -117,8 +117,8 @@ export function GlobalInvitationNotifier() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200">
-      <div className="w-80 max-h-[80vh] overflow-y-auto rounded-xl border bg-background shadow-2xl p-5 space-y-3 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200 p-4">
+      <div className="w-full max-w-sm max-h-[80vh] overflow-y-auto rounded-xl border bg-background shadow-2xl p-5 space-y-3 animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Room Invitations</p>
           <button
