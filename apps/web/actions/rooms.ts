@@ -2015,7 +2015,7 @@ export async function saveCorrectAnswers(
     .from('player_answers')
     .select('id, row_number, selected_position')
     .eq('session_round_id', activeRound.id)
-    .eq('user_id', profile.id)
+    .eq('user_id', profile.profileId)
 
   if (!playerAnswers || playerAnswers.length === 0) return {}
 
