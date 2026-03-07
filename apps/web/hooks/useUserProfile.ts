@@ -24,6 +24,11 @@ export function useUserProfile() {
     }
 
     async function fetchProfile() {
+      if (!user?.id) {
+        setLoading(false)
+        return
+      }
+
       try {
         const { data } = await supabase
           .from('user_profiles')
