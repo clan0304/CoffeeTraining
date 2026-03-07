@@ -321,7 +321,9 @@ export default function ProfileTab() {
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Profile</Text>
+        <Text style={styles.title}>
+          {profile?.username ? `@${profile.username}` : 'Profile'}
+        </Text>
 
         <View style={styles.avatarSection}>
           {profile?.photo_url ? (

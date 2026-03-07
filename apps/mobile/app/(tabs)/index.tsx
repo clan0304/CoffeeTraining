@@ -84,8 +84,9 @@ const styles = StyleSheet.create({
   cardInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
     gap: 12,
+    minHeight: 80,
   },
   cardIcon: {
     fontSize: 32,
