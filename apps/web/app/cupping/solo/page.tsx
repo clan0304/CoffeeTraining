@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -27,27 +27,34 @@ export default function SoloCuppingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
-  const [pageState, setPageState] = useState<PageState>(() => {
-    const state = searchParams.get('state') as PageState
-    return ['setup', 'scoring', 'results'].includes(state) ? state : 'setup'
-  })
+  const [pageState, setPageState] = useState<PageState>('setup')
   const [formType, setFormType] = useState<CuppingFormType>('simple')
-  const [samples, setSamples] = useState<SampleState[]>([
-    { id: crypto.randomUUID(), label: '', scores: getDefaultSimpleScores() },
+  const [samples, setSamples] = useState<SampleState[]>(() => [
+    { id: Math.random().toString(36).substr(2, 9), label: '', scores: getDefaultSimpleScores() },
   ])
   const [activeTab, setActiveTab] = useState<string>('')
   const [showSaveWordModal, setShowSaveWordModal] = useState(false)
 
+  // Initialize page state from URL params on client side
+  useEffect(() => {
+    const state = searchParams.get('state') as PageState
+    if (['setup', 'scoring', 'results'].includes(state)) {
+      setPageState(state)
+    }
+  }, [searchParams])
+
   // Update URL when page state changes
   const updatePageState = useCallback((newState: PageState) => {
     setPageState(newState)
-    const url = new URL(window.location.href)
-    if (newState === 'setup') {
-      url.searchParams.delete('state')
-    } else {
-      url.searchParams.set('state', newState)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      if (newState === 'setup') {
+        url.searchParams.delete('state')
+      } else {
+        url.searchParams.set('state', newState)
+      }
+      router.replace(url.pathname + url.search, { scroll: false })
     }
-    router.replace(url.pathname + url.search, { scroll: false })
   }, [router])
 
   const getDefaultScores = useCallback(() => {
@@ -69,7 +76,7 @@ export default function SoloCuppingPage() {
     setSamples((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: Math.random().toString(36).substr(2, 9),
         label: '',
         scores: getDefaultScores(),
       },
@@ -103,7 +110,7 @@ export default function SoloCuppingPage() {
 
   const handleStartOver = useCallback(() => {
     setSamples([
-      { id: crypto.randomUUID(), label: '', scores: getDefaultScores() },
+      { id: Math.random().toString(36).substr(2, 9), label: '', scores: getDefaultScores() },
     ])
     setActiveTab('')
     updatePageState('setup')
