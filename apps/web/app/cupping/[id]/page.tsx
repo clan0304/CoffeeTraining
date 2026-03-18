@@ -488,6 +488,79 @@ function CuppingRoomContent() {
     await loadRoom()
   }
 
+  const handleEditScores = async () => {
+    if (!room || room.status !== 'playing') return
+    
+    // Find active cupping session for this room
+    const supabase = getRealtimeClient()
+    const { data: session } = await supabase
+      .from('cupping_sessions')
+      .select('id')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (!session) {
+      console.error('No active session found')
+      return
+    }
+
+    // Get samples for this session
+    const { data: samples } = await supabase
+      .from('cupping_samples')
+      .select('id, sample_number')
+      .eq('session_id', session.id)
+      .order('sample_number', { ascending: true })
+
+    if (!samples) {
+      console.error('No samples found')
+      return
+    }
+
+    // Get current user's scores
+    const { data: existingScores } = await supabase
+      .from('cupping_scores')
+      .select('*')
+      .in('sample_id', samples.map(s => s.id))
+      .eq('user_id', currentUserProfileId)
+
+    if (!existingScores) {
+      console.error('No existing scores found')
+      return
+    }
+
+    // Build score map by sample number
+    const sampleIdMap = new Map(samples.map(s => [s.id, s.sample_number]))
+    const scoresMap = new Map<number, ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores>()
+    
+    for (const score of existingScores) {
+      const sampleNumber = sampleIdMap.get(score.sample_id)
+      if (sampleNumber) {
+        scoresMap.set(sampleNumber, score.scores as ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores)
+      }
+    }
+
+    // Restore scoring state with existing scores
+    const formType = (room.settings as CuppingSettings)?.form_type || 'sca'
+    const defaultScores = formType === 'simple' ? getDefaultSimpleScores() : 
+                         formType === 'doms' ? getDefaultDomsScores() :
+                         getDefaultScaScores()
+    
+    const scores: SampleScoreState[] = []
+    for (let i = 1; i <= coffeeCount; i++) {
+      const existingScore = scoresMap.get(i)
+      scores.push({ 
+        sampleNumber: i, 
+        scores: existingScore || defaultScores 
+      })
+    }
+    
+    setSampleScores(scores)
+    setActiveTab('1')
+    updateGamePhase('scoring')
+  }
+
   const handleEndSessionAndNavigate = async () => {
     if (!resultSessionId || !room) return
     try {
@@ -872,6 +945,15 @@ function CuppingRoomContent() {
               </CardContent>
             </Card>
           )}
+
+          <Button
+            onClick={handleEditScores}
+            variant="outline"
+            className="w-full"
+            size="lg"
+          >
+            ✏️ Edit My Scores
+          </Button>
 
           {isHost && (
             <Button
