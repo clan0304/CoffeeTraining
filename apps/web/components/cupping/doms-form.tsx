@@ -33,8 +33,8 @@ function DomsSlider({
 }) {
   const fill = ((value - 1) / 9) * 100
   return (
-    <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
-      <div className="flex items-baseline justify-between">
+    <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+      <div className="flex items-baseline justify-between mb-2">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-2xl font-bold tabular-nums tracking-tight">{value}</span>
       </div>
@@ -79,7 +79,7 @@ export function DomsForm({ scores, onChange, readOnly }: DomsFormProps) {
 
       {/* Dom's Extra Attributes */}
       <SectionHeader>Dom&apos;s Extra Attributes</SectionHeader>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
         <DomsSlider
           label="Sweetness"
           value={scores.doms_sweetness_score}
@@ -117,26 +117,32 @@ export function DomsForm({ scores, onChange, readOnly }: DomsFormProps) {
 
       {/* General Notes */}
       <SectionHeader>General Notes</SectionHeader>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
-          <span className="text-sm font-medium">F (Flavor)</span>
-          <AutocompleteNotesInput
-            value={scores.doms_flavor_notes}
-            onChange={(v) => update({ doms_flavor_notes: v })}
-            readOnly={readOnly}
-            placeholder="Flavor notes..."
-            className="text-xs h-7 border-dashed"
-          />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
+        <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+          <div className="mb-2">
+            <span className="text-sm font-medium">F (Flavor)</span>
+          </div>
+          <div className="mt-auto">
+            <AutocompleteNotesInput
+              value={scores.doms_flavor_notes}
+              onChange={(v) => update({ doms_flavor_notes: v })}
+              readOnly={readOnly}
+              placeholder="Flavor notes..."
+            />
+          </div>
         </div>
-        <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
-          <span className="text-sm font-medium">A (Aroma)</span>
-          <AutocompleteNotesInput
-            value={scores.doms_aroma_notes}
-            onChange={(v) => update({ doms_aroma_notes: v })}
-            readOnly={readOnly}
-            placeholder="Aroma notes..."
-            className="text-xs h-7 border-dashed"
-          />
+        <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+          <div className="mb-2">
+            <span className="text-sm font-medium">A (Aroma)</span>
+          </div>
+          <div className="mt-auto">
+            <AutocompleteNotesInput
+              value={scores.doms_aroma_notes}
+              onChange={(v) => update({ doms_aroma_notes: v })}
+              readOnly={readOnly}
+              placeholder="Aroma notes..."
+            />
+          </div>
         </div>
       </div>
     </div>

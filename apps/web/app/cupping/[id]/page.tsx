@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@clerk/nextjs'
 import { getRealtimeClient } from '@/lib/supabase/client'
@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
 import { DomsForm } from '@/components/cupping/doms-form'
-import { NewWordsReview } from '@/components/cupping/new-words-review'
+import { SaveWordModal } from '@/components/cupping/save-word-modal'
 import { SessionReportCard } from '@/components/cupping/session-report-card'
 import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore, getDefaultDomsScores, calculateDomsTotalScore } from '@cuppingtraining/shared/cupping'
 import {
@@ -55,6 +55,7 @@ interface SampleScoreState {
 export default function CuppingRoomPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useUser()
   const realtime = useMemo(() => getRealtimeClient(), [])
   const roomId = params.id as string
@@ -78,8 +79,11 @@ export default function CuppingRoomPage() {
   const [editingCoffeeId, setEditingCoffeeId] = useState<string | null>(null)
   const [editingCoffeeName, setEditingCoffeeName] = useState('')
 
-  // Game state
-  const [gamePhase, setGamePhase] = useState<GamePhase>('lobby')
+  // Game state - initialize from URL params
+  const [gamePhase, setGamePhase] = useState<GamePhase>(() => {
+    const phase = searchParams.get('phase') as GamePhase
+    return ['lobby', 'scoring', 'submitted', 'results'].includes(phase) ? phase : 'lobby'
+  })
   const [startingSession, setStartingSession] = useState(false)
   const [submittingScores, setSubmittingScores] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
@@ -94,13 +98,40 @@ export default function CuppingRoomPage() {
   const [sampleScores, setSampleScores] = useState<SampleScoreState[]>([])
   const [activeTab, setActiveTab] = useState<string>('')
 
-  // Results state
-  const [resultSessionId, setResultSessionId] = useState<string | null>(null)
+  // Results state - initialize from URL params
+  const [resultSessionId, setResultSessionId] = useState<string | null>(() => {
+    return searchParams.get('sessionId')
+  })
   const [resultSamples, setResultSamples] = useState<Array<CuppingSample & { coffeeName: string; coffeeLabel: string }>>([])
   const [resultScores, setResultScores] = useState<Array<CuppingScore & { username: string; sampleNumber: number }>>([])
 
+  // Save word modal state
+  const [showSaveWordModal, setShowSaveWordModal] = useState(false)
+
+  // Coffee name reveal state - track which coffee names are revealed
+  const [revealedCoffees, setRevealedCoffees] = useState<Set<string>>(new Set())
+  const [animatingCoffees, setAnimatingCoffees] = useState<Set<string>>(new Set())
+
   // Channel ref
   const [roomChannel, setRoomChannel] = useState<ReturnType<typeof realtime.channel> | null>(null)
+
+  // Update URL when game phase changes
+  const updateGamePhase = useCallback((newPhase: GamePhase, sessionId?: string) => {
+    setGamePhase(newPhase)
+    const url = new URL(window.location.href)
+    
+    if (newPhase === 'lobby') {
+      url.searchParams.delete('phase')
+      url.searchParams.delete('sessionId')
+    } else {
+      url.searchParams.set('phase', newPhase)
+      if (sessionId) {
+        url.searchParams.set('sessionId', sessionId)
+      }
+    }
+    
+    router.replace(url.pathname + url.search, { scroll: false })
+  }, [router])
 
   const loadRoom = useCallback(async () => {
     const result = await getCuppingRoomDetails(roomId)
@@ -138,7 +169,7 @@ export default function CuppingRoomPage() {
     }
     setSampleScores(scores)
     setActiveTab('1')
-    setGamePhase('scoring')
+    updateGamePhase('scoring')
   }
 
   // Realtime broadcast channel
@@ -176,7 +207,7 @@ export default function CuppingRoomPage() {
       channel.on('broadcast', { event: CUPPING_EVENTS.CUPPING_ENDED }, (payload) => {
         const { sessionId } = payload.payload as { sessionId: string }
         setResultSessionId(sessionId)
-        setGamePhase('results')
+        updateGamePhase('results', sessionId)
       })
 
       channel.on('broadcast', { event: CUPPING_EVENTS.PLAYER_LEFT }, async () => {
@@ -230,6 +261,38 @@ export default function CuppingRoomPage() {
       loadResults(resultSessionId)
     }
   }, [gamePhase, resultSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle invalid scoring state on page load
+  useEffect(() => {
+    if (gamePhase === 'scoring' && sampleScores.length === 0 && !loading && room) {
+      // Check if there's an active session that should be restored
+      if (room.status === 'playing' && coffeeCount > 0) {
+        // Restore scoring session
+        const initializeScoring = async () => {
+          const roomFormType = (room.settings as CuppingSettings)?.form_type || 'sca'
+          const defaultScores = roomFormType === 'simple' ? getDefaultSimpleScores() : 
+                               roomFormType === 'doms' ? getDefaultDomsScores() :
+                               getDefaultScaScores()
+          
+          const scores: SampleScoreState[] = []
+          for (let i = 1; i <= coffeeCount; i++) {
+            scores.push({ sampleNumber: i, scores: defaultScores })
+          }
+          setSampleScores(scores)
+          setActiveTab('1')
+        }
+        initializeScoring()
+      } else {
+        // No active session, redirect to lobby
+        updateGamePhase('lobby')
+      }
+    }
+    
+    // Handle invalid submitted state on page load
+    if (gamePhase === 'submitted' && !loading && room && room.status !== 'playing') {
+      updateGamePhase('lobby')
+    }
+  }, [gamePhase, sampleScores.length, loading, room, coffeeCount, updateGamePhase])
 
   const loadResults = async (sessionId: string) => {
     const result = await getCuppingResults(roomId, sessionId)
@@ -378,7 +441,7 @@ export default function CuppingRoomPage() {
       return
     }
 
-    setGamePhase('submitted')
+    updateGamePhase('submitted')
 
     // Broadcast submission
     const username = user?.username || user?.firstName || 'Unknown'
@@ -403,7 +466,7 @@ export default function CuppingRoomPage() {
     }
 
     setResultSessionId(result.sessionId!)
-    setGamePhase('results')
+    updateGamePhase('results', result.sessionId!)
 
     // Broadcast to all players
     roomChannel?.send({
@@ -416,13 +479,32 @@ export default function CuppingRoomPage() {
   }
 
   const handleBackToLobby = async () => {
-    setGamePhase('lobby')
+    updateGamePhase('lobby')
     setSubmittedPlayers([])
     setSampleScores([])
     setResultSessionId(null)
     setResultSamples([])
     setResultScores([])
     await loadRoom()
+  }
+
+  const handleEndSessionAndNavigate = async () => {
+    if (!resultSessionId || !room) return
+    try {
+      await endCuppingSession(room.id)
+      // Broadcast session ended event
+      roomChannel?.send({
+        type: 'broadcast',
+        event: CUPPING_EVENTS.CUPPING_ENDED,
+        payload: { sessionId: resultSessionId }
+      })
+      // Navigate to session detail page to view the completed session
+      window.location.href = `/cupping/sessions/${resultSessionId}`
+    } catch (error) {
+      console.error('Failed to end session:', error)
+      // Fallback: still navigate even if broadcast fails
+      window.location.href = `/cupping/sessions/${resultSessionId}`
+    }
   }
 
   const handleLeaveRoom = async () => {
@@ -521,10 +603,160 @@ export default function CuppingRoomPage() {
         <div className="max-w-3xl mx-auto space-y-4 pt-4">
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold">Cupping Results</h1>
-            <p className="text-muted-foreground">Coffee names revealed</p>
           </div>
 
-          {/* Summary card */}
+
+          {/* Coffee containers with player tabs for each coffee */}
+          <div className="space-y-6">
+            {resultSamples.map((sample) => {
+              const sampleScores = resultScores.filter((s) => s.sampleNumber === sample.sample_number)
+              const players = Array.from(
+                new Map(sampleScores.map((score) => [score.user_id, { userId: score.user_id, username: score.username }]))
+                .values()
+              )
+
+              return (
+                <Card key={sample.id}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-primary">{sample.coffeeLabel}</span>
+                        <div className="relative min-w-[160px] h-12 flex items-center justify-center">
+                          {revealedCoffees.has(sample.id) ? (
+                            <span 
+                              key={`revealed-${sample.id}`}
+                              className="text-lg font-medium animate-in fade-in slide-in-from-bottom-2 duration-1000 fill-mode-both"
+                            >
+                              {sample.coffeeName}
+                            </span>
+                          ) : animatingCoffees.has(sample.id) ? (
+                            <div className="relative w-full h-full flex items-center justify-center">
+                              {/* Scattered particle animation */}
+                              {[...Array(8)].map((_, i) => (
+                                <div
+                                  key={i}
+                                  className="absolute w-2 h-2 bg-primary rounded-full animate-ping"
+                                  style={{
+                                    left: `${25 + (i % 4) * 15}%`,
+                                    top: `${25 + Math.floor(i / 4) * 25}%`,
+                                    animationDelay: `${i * 100}ms`,
+                                    animationDuration: '1200ms'
+                                  }}
+                                />
+                              ))}
+                              {/* Central sparkle */}
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-6 h-6 text-primary animate-spin">
+                                  ✨
+                                </div>
+                              </div>
+                              {/* Coffee name fading in */}
+                              <span 
+                                className="absolute inset-0 flex items-center justify-center text-lg font-medium opacity-0 animate-in fade-in duration-1000 delay-800 fill-mode-forwards"
+                                style={{ animationFillMode: 'forwards' }}
+                              >
+                                {sample.coffeeName}
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              key={`button-${sample.id}`}
+                              onClick={() => {
+                                setAnimatingCoffees(prev => new Set([...prev, sample.id]))
+                                setTimeout(() => {
+                                  setRevealedCoffees(prev => new Set([...prev, sample.id]))
+                                  setAnimatingCoffees(prev => {
+                                    const newSet = new Set(prev)
+                                    newSet.delete(sample.id)
+                                    return newSet
+                                  })
+                                }, 1800)
+                              }}
+                              className="group relative px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
+                            >
+                              <span className="relative z-10 font-medium">✨ Reveal</span>
+                              <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/80 to-primary rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {players.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-muted-foreground">No scores submitted for this coffee.</p>
+                      </div>
+                    ) : (
+                      <Tabs defaultValue={players[0]?.userId}>
+                        <div className="overflow-x-auto mb-4">
+                          <TabsList className="w-max min-w-full">
+                            {players.map((player) => {
+                              const playerScore = sampleScores.find((s) => s.user_id === player.userId)
+                              return (
+                                <TabsTrigger
+                                  key={player.userId}
+                                  value={player.userId}
+                                  className="flex-none min-w-fit px-4"
+                                >
+                                  <span>@{player.username}</span>
+                                  {playerScore && (
+                                    <span className="ml-2 text-xs text-primary font-bold">
+                                      {(playerScore.total_score || 0).toFixed(2)}
+                                    </span>
+                                  )}
+                                </TabsTrigger>
+                              )
+                            })}
+                          </TabsList>
+                        </div>
+
+                        {players.map((player) => {
+                          const score = sampleScores.find((s) => s.user_id === player.userId)
+                          return (
+                            <TabsContent key={player.userId} value={player.userId}>
+                              {score ? (
+                                score.form_type === 'simple' ? (
+                                  <SimpleForm
+                                    scores={score.scores as SimpleCuppingScores}
+                                    onChange={() => {}}
+                                    readOnly
+                                  />
+                                ) : score.form_type === 'doms' ? (
+                                  <DomsForm
+                                    scores={score.scores as DomsCuppingScores}
+                                    onChange={() => {}}
+                                    readOnly
+                                  />
+                                ) : (
+                                  <ScaForm
+                                    scores={score.scores as ScaCuppingScores}
+                                    onChange={() => {}}
+                                    readOnly
+                                  />
+                                )
+                              ) : (
+                                <p className="text-sm text-muted-foreground text-center py-4">
+                                  No score submitted by this player
+                                </p>
+                              )}
+                            </TabsContent>
+                          )
+                        })}
+                      </Tabs>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {/* Statistics section - shown after individual reviews */}
+          <div className="text-center py-4">
+            <p className="text-muted-foreground text-lg font-medium">Coffee names revealed</p>
+          </div>
+          
+          {/* Summary card with average scores */}
           <Card>
             <CardContent className="py-4">
               <div className="space-y-2">
@@ -554,80 +786,45 @@ export default function CuppingRoomPage() {
             </CardContent>
           </Card>
 
-          <NewWordsReview
-            sampleScores={sampleScores.map((s) => ({ scores: s.scores }))}
-            formType={roomFormType}
-          />
-
           <SessionReportCard samples={resultSamples} scores={resultScores} />
 
-          {/* Per-sample scores by player */}
-          <Tabs defaultValue={resultSamples[0]?.sample_number.toString()}>
-            <TabsList className="w-full">
-              {resultSamples.map((sample) => (
-                <TabsTrigger
-                  key={sample.id}
-                  value={sample.sample_number.toString()}
-                  className="flex-1"
-                >
-                  <span className="font-bold mr-1">{sample.coffeeLabel}</span>
-                  <span className="truncate text-xs">{sample.coffeeName}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="space-y-3">
+            {isHost ? (
+              <Button 
+                onClick={handleEndSessionAndNavigate} 
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
+              >
+                🏁 End Session & Save Results
+              </Button>
+            ) : (
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground">
+                  Waiting for host to end the session...
+                </p>
+              </div>
+            )}
+            <Button onClick={handleBackToLobby} variant="outline" className="w-full">
+              Back to Lobby
+            </Button>
+          </div>
 
-            {resultSamples.map((sample) => {
-              const samplePlayerScores = resultScores.filter(
-                (s) => s.sampleNumber === sample.sample_number
-              )
-              return (
-                <TabsContent key={sample.id} value={sample.sample_number.toString()}>
-                  <div className="space-y-3">
-                    {samplePlayerScores.map((score) => (
-                      <Card key={score.id}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-base flex items-center justify-between">
-                            <span>@{score.username}</span>
-                            <span className="text-primary">{(score.total_score || 0).toFixed(2)}</span>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {score.form_type === 'simple' ? (
-                            <SimpleForm
-                              scores={score.scores as SimpleCuppingScores}
-                              onChange={() => {}}
-                              readOnly
-                            />
-                          ) : score.form_type === 'doms' ? (
-                            <DomsForm
-                              scores={score.scores as DomsCuppingScores}
-                              onChange={() => {}}
-                              readOnly
-                            />
-                          ) : (
-                            <ScaForm
-                              scores={score.scores as ScaCuppingScores}
-                              onChange={() => {}}
-                              readOnly
-                            />
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                    {samplePlayerScores.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No scores submitted for this sample
-                      </p>
-                    )}
-                  </div>
-                </TabsContent>
-              )
-            })}
-          </Tabs>
-
-          <Button onClick={handleBackToLobby} className="w-full">
-            Back to Lobby
-          </Button>
+          {/* Floating Save Word Button - only in results view */}
+          {gamePhase === 'results' && (
+            <button
+              onClick={() => setShowSaveWordModal(true)}
+              className="fixed bottom-6 right-6 z-50 bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg hover:bg-primary/90 transition-colors text-sm font-medium flex items-center gap-2"
+            >
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
+              </svg>
+              Save New Word
+            </button>
+          )}
+          
+          <SaveWordModal 
+            isOpen={showSaveWordModal} 
+            onClose={() => setShowSaveWordModal(false)} 
+          />
         </div>
       </div>
     )
@@ -749,25 +946,19 @@ export default function CuppingRoomPage() {
           )}
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full">
-              {sampleScores.map((sample) => {
-                const total = roomFormType === 'simple'
-                  ? calculateSimpleTotalScore(sample.scores as SimpleCuppingScores)
-                  : roomFormType === 'doms'
-                    ? calculateDomsTotalScore(sample.scores as DomsCuppingScores)
-                    : calculateScaTotalScore(sample.scores as ScaCuppingScores)
-                return (
+            <div className="overflow-x-auto">
+              <TabsList className="w-max min-w-full">
+                {sampleScores.map((sample) => (
                   <TabsTrigger
                     key={sample.sampleNumber}
                     value={sample.sampleNumber.toString()}
-                    className="flex-1"
+                    className="flex-none min-w-fit px-4"
                   >
                     <span>Sample {sample.sampleNumber}</span>
-                    <span className="ml-1 text-xs text-muted-foreground">{total.toFixed(1)}</span>
                   </TabsTrigger>
-                )
-              })}
-            </TabsList>
+                ))}
+              </TabsList>
+            </div>
 
             {sampleScores.map((sample) => (
               <TabsContent key={sample.sampleNumber} value={sample.sampleNumber.toString()}>

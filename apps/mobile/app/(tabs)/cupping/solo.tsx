@@ -29,7 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { SimpleForm } from '../../../components/cupping/SimpleForm'
 import { ScaForm } from '../../../components/cupping/ScaForm'
 import { DomsForm } from '../../../components/cupping/DomsForm'
-import { NewWordsReview } from '../../../components/cupping/NewWordsReview'
+import { SaveWordModal } from '../../../components/cupping/SaveWordModal'
 import { colors } from '../../../lib/colors'
 
 interface SampleState {
@@ -48,6 +48,7 @@ export default function SoloCuppingScreen() {
     { id: Crypto.randomUUID(), label: '', scores: getDefaultSimpleScores() },
   ])
   const [activeTabIndex, setActiveTabIndex] = useState(0)
+  const [showSaveWordModal, setShowSaveWordModal] = useState(false)
 
   const getDefaultScores = useCallback(
     () => {
@@ -258,7 +259,6 @@ export default function SoloCuppingScreen() {
           contentContainerStyle={styles.tabBar}
         >
           {samples.map((sample, i) => {
-            const total = calcTotal(sample.scores)
             const isActive = i === activeTabIndex
             return (
               <TouchableOpacity
@@ -274,9 +274,6 @@ export default function SoloCuppingScreen() {
                   numberOfLines={1}
                 >
                   {sample.label || `Sample ${i + 1}`}
-                </Text>
-                <Text style={[styles.tabScore, isActive && styles.tabScoreActive]}>
-                  {total.toFixed(1)}
                 </Text>
               </TouchableOpacity>
             )
@@ -336,7 +333,6 @@ export default function SoloCuppingScreen() {
           </CardContent>
         </Card>
 
-        <NewWordsReview sampleScores={samples} formType={formType} />
 
         {/* Tab pills for results */}
         <ScrollView
@@ -393,7 +389,23 @@ export default function SoloCuppingScreen() {
             Back to Cupping
           </Button>
         </View>
+        
+        <SaveWordModal 
+          visible={showSaveWordModal} 
+          onClose={() => setShowSaveWordModal(false)} 
+        />
       </ScrollView>
+
+      {/* Floating Save Word Button - positioned absolutely */}
+      {pageState === 'results' && (
+        <TouchableOpacity
+          onPress={() => setShowSaveWordModal(true)}
+          style={styles.floatingButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.floatingButtonText}>Save New Word</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   )
 }
@@ -510,9 +522,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     backgroundColor: colors.borderLight,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
   },
   tabPillActive: {
     backgroundColor: colors.primary,
@@ -525,14 +534,6 @@ const styles = StyleSheet.create({
   },
   tabPillTextActive: {
     color: colors.primaryForeground,
-  },
-  tabScore: {
-    fontSize: 12,
-    color: colors.muted,
-  },
-  tabScoreActive: {
-    color: colors.primaryForeground,
-    opacity: 0.8,
   },
   scoringContent: {
     padding: 16,
@@ -567,5 +568,24 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: 'center',
+  },
+  floatingButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  floatingButtonText: {
+    color: colors.primaryForeground,
+    fontSize: 14,
+    fontWeight: '500',
   },
 })

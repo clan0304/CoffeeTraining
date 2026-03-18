@@ -297,10 +297,12 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
 
   return (
     <View style={styles.container}>
-      {/* Total */}
-      <View style={styles.totalCard}>
-        <Text style={styles.totalScore}>{totalScore.toFixed(2)}</Text>
-      </View>
+      {/* Total (only show in readOnly mode) */}
+      {readOnly && (
+        <View style={styles.totalCard}>
+          <Text style={styles.totalScore}>{totalScore.toFixed(2)}</Text>
+        </View>
+      )}
 
       {/* Scored Attributes */}
       <SectionHeader>SCORED ATTRIBUTES</SectionHeader>

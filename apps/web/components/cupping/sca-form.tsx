@@ -98,22 +98,25 @@ function AttributeBox({
   children?: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
-      <div className="flex items-baseline justify-between">
+    <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+      <div className="flex items-baseline justify-between mb-2">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-2xl font-bold tabular-nums tracking-tight">
           {score.toFixed(2)}
         </span>
       </div>
-      <ScoreSlider value={score} onChange={onScoreChange} readOnly={readOnly} />
-      {children}
-      <AutocompleteNotesInput
-        value={notes}
-        onChange={onNotesChange}
-        readOnly={readOnly}
-        placeholder="Notes..."
-        className="text-xs h-7 border-dashed mt-auto"
-      />
+      <div className="mb-2">
+        <ScoreSlider value={score} onChange={onScoreChange} readOnly={readOnly} />
+      </div>
+      {children && <div className="mb-2">{children}</div>}
+      <div className="mt-auto">
+        <AutocompleteNotesInput
+          value={notes}
+          onChange={onNotesChange}
+          readOnly={readOnly}
+          placeholder="Notes..."
+        />
+      </div>
     </div>
   )
 }
@@ -136,12 +139,12 @@ function CupBox({
 }) {
   const score = cups.filter(Boolean).length * 2
   return (
-    <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+    <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-lg font-bold tabular-nums">{score}<span className="text-xs font-normal text-muted-foreground">/10</span></span>
       </div>
-      <div className="flex gap-1.5">
+      <div className="flex gap-1.5 mb-2">
         {cups.map((checked, i) => (
           <button
             key={i}
@@ -163,13 +166,14 @@ function CupBox({
           </button>
         ))}
       </div>
-      <AutocompleteNotesInput
-        value={notes}
-        onChange={onNotesChange}
-        readOnly={readOnly}
-        placeholder="Notes..."
-        className="text-xs h-7 border-dashed mt-auto"
-      />
+      <div className="mt-auto">
+        <AutocompleteNotesInput
+          value={notes}
+          onChange={onNotesChange}
+          readOnly={readOnly}
+          placeholder="Notes..."
+        />
+      </div>
     </div>
   )
 }
@@ -259,16 +263,18 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
 
   return (
     <div className="space-y-4">
-      {/* ── Total Score Hero ── */}
-      <div className="text-center py-6 rounded-xl bg-gradient-to-b from-primary/10 to-transparent border border-primary/15">
-        <div className="text-5xl font-black tabular-nums tracking-tight">
-          {totalScore.toFixed(2)}
+      {/* ── Total Score Hero (only show in readOnly mode) ── */}
+      {readOnly && (
+        <div className="text-center py-6 rounded-xl bg-gradient-to-b from-primary/10 to-transparent border border-primary/15">
+          <div className="text-5xl font-black tabular-nums tracking-tight">
+            {totalScore.toFixed(2)}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Scored Attributes ── */}
       <SectionHeader>Scored Attributes</SectionHeader>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
         <AttributeBox
           label="Fragrance / Aroma"
           score={scores.fragrance_score}
@@ -368,7 +374,7 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
 
       {/* ── Cup Evaluation ── */}
       <SectionHeader>Cup Evaluation</SectionHeader>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
         <CupBox
           label="Uniformity"
           cups={scores.uniformity_cups}

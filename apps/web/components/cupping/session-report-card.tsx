@@ -124,50 +124,6 @@ export function SessionReportCard({ samples, scores }: SessionReportCardProps) {
         </Card>
       )}
 
-      {/* Community Notes */}
-      {report.coffeeNotes.some((cn) => cn.topWords.length > 0) && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Community Notes</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {report.coffeeNotes.map((cn) => {
-              if (cn.topWords.length === 0) return null
-              return (
-                <div key={cn.coffeeLabel} className="space-y-2">
-                  <div>
-                    <span className="font-bold text-primary mr-2">{cn.coffeeLabel}</span>
-                    <span className="font-medium">{cn.coffeeName}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {cn.topWords.map((tw) => (
-                      <span
-                        key={tw.word}
-                        className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs"
-                      >
-                        <span>{tw.word}</span>
-                        {report.playerCount > 1 && (
-                          <span className="text-muted-foreground">({tw.count})</span>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                  {report.playerCount > 1 && cn.playerNotes.length > 0 && (
-                    <div className="space-y-1 pl-1">
-                      {cn.playerNotes.map((pn) => (
-                        <p key={pn.username} className="text-xs text-muted-foreground">
-                          <span className="font-medium">@{pn.username}:</span>{' '}
-                          {pn.notes.join(', ')}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

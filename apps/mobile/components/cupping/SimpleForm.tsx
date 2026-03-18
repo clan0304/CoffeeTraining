@@ -72,11 +72,13 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
 
   return (
     <View style={styles.container}>
-      {/* Total Score */}
-      <View style={styles.totalCard}>
-        <Text style={styles.totalScore}>{totalScore.toFixed(1)}</Text>
-        <Text style={styles.totalLabel}>out of 5.0</Text>
-      </View>
+      {/* Total Score (only show in readOnly mode) */}
+      {readOnly && (
+        <View style={styles.totalCard}>
+          <Text style={styles.totalScore}>{totalScore.toFixed(1)}</Text>
+          <Text style={styles.totalLabel}>out of 5.0</Text>
+        </View>
+      )}
 
       {/* Attributes */}
       {ATTRIBUTES.map((attr) => (

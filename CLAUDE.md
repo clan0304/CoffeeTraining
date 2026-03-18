@@ -83,8 +83,8 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - **Common words**: `COMMON_FLAVOR_WORDS` from `@cuppingtraining/shared/flavor-words` — SCA Flavor Wheel descriptors organized by `FLAVOR_CATEGORIES`.
 - **Autocomplete**: `AutocompleteNotesInput` component (web + mobile) provides suggestions from common + custom words while typing in notes fields. Comma-separated input, suggestions appear after 1+ chars.
 - **FlavorWordsProvider**: Context provider wrapping cupping layouts. Exposes `{ words: string[], addWord: (word) => Promise<void> }`. Web uses `getUserFlavorWords()` / `addFlavorWord()` server actions. Mobile uses `/api/mobile/flavor-words` GET/POST.
-- **Post-Session Review**: `NewWordsReview` component (web + mobile) shown in results views. Uses `extractNewWordsFromSamples()` to find words not in common/custom lists. Users select words via pills and bulk-save to vocabulary.
-- **No inline save during cupping** — autocomplete only suggests existing words. New word saving happens exclusively in post-session review.
+- **Save New Word Modal**: Replaces `NewWordsReview`. Simple modal with text input for single word entry. Prevents duplicates and enforces single-word vocabulary entries. Accessible via floating "Save New Word" button in results views.
+- **Expandable Text**: `ExpandableText` component (web + mobile) handles long notes display with 4-line truncation. Shows expand/collapse with arrow icons (▼/▲) instead of "Show more/less" text. Prevents UI clutter while preserving full content access. Uses CSS line-clamp for web and numberOfLines for React Native.
 - Utilities: `@cuppingtraining/shared/flavor-words` (`extractWordsFromScores`, `extractNewWords`, `extractNewWordsFromSamples`).
 - Server actions: `apps/web/actions/flavor-words.ts` (`getUserFlavorWords`, `addFlavorWord`, `removeFlavorWord`).
 - Mobile API: `apps/web/app/api/mobile/flavor-words/route.ts` (GET list, POST add word).
@@ -93,8 +93,9 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 ### Session Report
 - `SessionReportCard` component (`apps/web/components/cupping/session-report-card.tsx`) — shown in multiplayer results view and session detail page.
 - Uses `generateSessionReport()` from `@cuppingtraining/shared/cupping` to compute all data.
-- 4 sections: **Session Summary** (stat cards), **Score Comparison** (per-coffee avg/high/low + player score pills), **Attribute Averages** (progress bars), **Community Notes** (word frequency pills + per-player notes).
-- Utility: `packages/shared/src/cupping/session-report.ts` — exports `generateSessionReport()` and types (`SessionReport`, `CoffeeSummary`, `CoffeeNotes`, `AttributeAverage`, etc.).
+- 3 sections: **Session Summary** (stat cards), **Score Comparison** (per-coffee avg/high/low + player score pills), **Attribute Averages** (progress bars).
+- Community Notes section was removed to reduce UI clutter and focus on scoring data.
+- Utility: `packages/shared/src/cupping/session-report.ts` — exports `generateSessionReport()` and types (`SessionReport`, `CoffeeSummary`, `AttributeAverage`, etc.).
 
 ### Mobile API Layer
 - Mobile app communicates with the web app's Next.js API routes (not server actions directly).
@@ -169,7 +170,7 @@ apps/
       cupping/          # ScaForm, SimpleForm, AutocompleteNotesInput, FlavorWordsProvider, NewWordsReview, SessionReportCard
       rooms/            # InvitationsList, FriendInvitePicker
       onboarding/       # OnboardingForm
-      ui/               # shadcn/ui components
+      ui/               # shadcn/ui components (includes ExpandableText)
     lib/
       api/auth.ts       # Mobile API auth helper (Bearer token → profile UUID)
       supabase/         # Supabase client helpers (client.ts, server.ts, admin.ts)
@@ -196,7 +197,7 @@ apps/
       training/         # Timer, Countdown, AnswerSheet, TriangulationRow
       cupping/          # StarRating, SimpleForm, ScaForm, AutocompleteNotesInput, FlavorWordsProvider, NewWordsReview
       dashboard/        # AccuracyTrend, CoffeeStats
-      ui/               # Button, Card
+      ui/               # Button, Card, ExpandableText
     lib/
       api.ts            # useApiClient() hook (auto-attaches Clerk Bearer token)
       clerk.ts          # Clerk token cache + publishable key
@@ -265,6 +266,41 @@ package.json            # Workspace root
 - **Cupping tab**: Session History, **All Scored Coffees** (searchable + sortable by score high/low, date new/old via dropdown), and **Flavor Vocabulary** (Common/Custom sub-tabs).
 - `CuppingDashboardData` includes `allScoresByRank: CuppingScoreEntry[]` — all user's cupping scores sorted by total_score descending.
 - Web navbar links (signed in): Cup Tasters, Cupping, Dashboard, Friends. No Settings page.
+
+## UI/UX Improvements
+
+### Cupping Results Layout Redesign
+- **Coffee-Focused Organization**: Results pages reorganized from player-focused tabs to coffee-focused containers. Each coffee gets its own card with player tabs inside for comparing different players' evaluations of the same coffee.
+- **Progressive Coffee Name Reveal**: Individual reveal buttons for each coffee name with animated effects. Prevents bias during scoring by keeping coffee identities hidden until deliberately revealed.
+- **Animated Reveal Effects**: Coffee name reveal features scattered particle animation (8 animated dots) plus central sparkle emoji (✨) with spin animation, followed by fade-in text animation lasting 1.8 seconds total.
+- **Session Data Persistence**: Proper "End Session" functionality added to cupping multiplayer rooms. Host can save session data to database and navigate to detailed results view instead of just returning to lobby.
+
+### Expandable Text System
+- **Cross-Platform Implementation**: `ExpandableText` components for both web (`apps/web/components/ui/expandable-text.tsx`) and mobile (`apps/mobile/components/ui/ExpandableText.tsx`).
+- **4-Line Truncation**: Default maxLines of 4 with automatic overflow detection using CSS line-clamp (web) or React Native numberOfLines.
+- **Smart Show More/Less**: Only appears when text actually overflows. Uses arrow icons (▼/▲) for cleaner visual design.
+- **Word Breaking**: Proper CSS word-break and overflow-wrap to handle long words without container overflow.
+- **Measurement Strategy**: Web uses hidden duplicate element for height measurement, mobile uses onLayout events.
+
+### Cupping Form Enhancements
+- **Bias-Free Scoring**: Removed total score displays from coffee sample tabs during scoring phase to prevent confirmation bias and encourage independent evaluation.
+- **Improved Notes UI**: All notes inputs updated to use expandable text areas with minimum height of 64px (min-h-16) for better visual consistency.
+- **Mobile Text Areas**: Increased height and improved styling for notes inputs on mobile to provide more comfortable writing experience.
+
+### Results Page Flow Optimization
+- **Individual Review First**: Results layout encourages reviewing each coffee individually before seeing comparative statistics.
+- **Statistics At Bottom**: Session summary, score comparison, and attribute averages moved to bottom of results page to promote thorough individual evaluation first.
+- **Host Session Management**: Clear distinction between "End Session & Save Results" (primary action) and "Back to Lobby" (secondary action) for better user flow.
+
+### Animation System
+- **Tailwind CSS Animations**: Uses Tailwind's animate-in, fade-in, slide-in-from-bottom, animate-ping, and animate-spin utilities.
+- **Coordinated Timing**: Multi-stage animations with precise timing (scattered particles → sparkle → text fade-in) for polished user experience.
+- **State Management**: React state manages animation phases (waiting → animating → revealed) to prevent conflicts and ensure smooth transitions.
+
+### Code Quality Improvements
+- **Unused Code Cleanup**: Removed unused score calculations and variables after removing bias-inducing score displays.
+- **Cross-Platform Consistency**: Ensured both web and mobile apps have feature parity for expandable text and cupping form improvements.
+- **Component Reusability**: Created shared expandable text components that can be used throughout the application for consistent long text handling.
 
 ## Key Conventions
 - `apps/web/proxy.ts` is the Next.js 16 replacement for `middleware.ts`. Uses `clerkMiddleware()`. `/api/mobile(.*)` is in the public routes list — mobile API routes handle their own auth via Bearer tokens.

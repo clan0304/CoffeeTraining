@@ -8,6 +8,7 @@ import {
   StyleSheet,
   type ViewStyle,
 } from 'react-native'
+import { ExpandableText } from '../ui/ExpandableText'
 import { useFlavorWords } from './FlavorWordsProvider'
 import {
   COMMON_FLAVOR_WORDS,
@@ -52,6 +53,29 @@ export function AutocompleteNotesInput({
     },
     [value, onChangeText]
   )
+
+  // For read-only mode with long text, show expand/collapse
+  if (!editable) {
+    const safeValue = value || ''
+    
+    if (!safeValue) {
+      return (
+        <View style={[styles.readOnlyContainer, style]}>
+          <Text style={styles.readOnlyText}>{placeholder}</Text>
+        </View>
+      )
+    }
+    
+    return (
+      <View style={[styles.readOnlyContainer, style]}>
+        <ExpandableText 
+          text={safeValue}
+          maxLines={4}
+          textStyle={styles.readOnlyText}
+        />
+      </View>
+    )
+  }
 
   return (
     <View>
@@ -102,6 +126,20 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     fontSize: 13,
     color: colors.foreground,
+  },
+  readOnlyContainer: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: colors.borderLight,
+    minHeight: 80,
+  },
+  readOnlyText: {
+    fontSize: 13,
+    color: colors.foreground,
+    lineHeight: 18,
   },
   chipsRow: {
     marginTop: 6,

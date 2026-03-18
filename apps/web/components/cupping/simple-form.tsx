@@ -70,18 +70,22 @@ function AttributeRow({
   readOnly?: boolean
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-2">
-      <div className="flex items-center justify-between">
+    <div className="rounded-lg border bg-card p-4 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-lg font-bold tabular-nums">{score}<span className="text-xs font-normal text-muted-foreground">/5</span></span>
       </div>
-      <StarRating value={score} onChange={onScoreChange} readOnly={readOnly} />
-      <AutocompleteNotesInput
-        value={notes}
-        onChange={onNotesChange}
-        readOnly={readOnly}
-        placeholder={placeholder}
-      />
+      <div className="mb-2">
+        <StarRating value={score} onChange={onScoreChange} readOnly={readOnly} />
+      </div>
+      <div className="mt-auto">
+        <AutocompleteNotesInput
+          value={notes}
+          onChange={onNotesChange}
+          readOnly={readOnly}
+          placeholder={placeholder}
+        />
+      </div>
     </div>
   )
 }
@@ -99,16 +103,18 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
 
   return (
     <div className="space-y-4">
-      {/* Total Score Hero */}
-      <div className="text-center py-6 rounded-xl bg-gradient-to-b from-primary/10 to-transparent border border-primary/15">
-        <div className="text-5xl font-black tabular-nums tracking-tight">
-          {totalScore.toFixed(1)}
+      {/* Total Score Hero (only show in readOnly mode) */}
+      {readOnly && (
+        <div className="text-center py-6 rounded-xl bg-gradient-to-b from-primary/10 to-transparent border border-primary/15">
+          <div className="text-5xl font-black tabular-nums tracking-tight">
+            {totalScore.toFixed(1)}
+          </div>
+          <div className="text-sm text-muted-foreground mt-1">out of 5.0</div>
         </div>
-        <div className="text-sm text-muted-foreground mt-1">out of 5.0</div>
-      </div>
+      )}
 
       {/* Attribute rows */}
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
         {ATTRIBUTES.map((attr) => (
           <AttributeRow
             key={attr.key}
@@ -131,6 +137,7 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
           onChange={(v) => update({ overall_notes: v })}
           readOnly={readOnly}
           placeholder="General impressions..."
+          className="text-xs min-h-16 border-dashed"
         />
       </div>
     </div>

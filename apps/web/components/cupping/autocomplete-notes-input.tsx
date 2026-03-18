@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { ExpandableText } from '@/components/ui/expandable-text'
 import { useFlavorWords } from './flavor-words-provider'
 import {
   COMMON_FLAVOR_WORDS,
@@ -25,14 +26,14 @@ export function AutocompleteNotesInput({
   onChange,
   readOnly,
   placeholder,
-  className = 'text-xs h-7 border-dashed',
+  className = 'text-xs min-h-16 max-h-32 border-dashed resize-none overflow-y-auto break-words',
 }: AutocompleteNotesInputProps) {
   const { words: customWords } = useFlavorWords()
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Compute suggestions when value changes
   const updateSuggestions = useCallback(
@@ -53,7 +54,7 @@ export function AutocompleteNotesInput({
   )
 
   const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value
       onChange(newValue)
       updateSuggestions(newValue)
@@ -67,7 +68,7 @@ export function AutocompleteNotesInput({
       onChange(newValue)
       setOpen(false)
       setSuggestions([])
-      inputRef.current?.focus()
+      textareaRef.current?.focus()
     },
     [value, onChange]
   )
@@ -104,20 +105,32 @@ export function AutocompleteNotesInput({
   }, [])
 
   if (readOnly) {
+    const safeValue = value || ''
+    
+    if (!safeValue) {
+      return (
+        <Textarea
+          value=""
+          readOnly
+          placeholder={placeholder}
+          className={className}
+        />
+      )
+    }
+    
     return (
-      <Input
-        value={value}
-        readOnly
-        placeholder={placeholder}
-        className={className}
-      />
+      <div className={`px-3 py-2 bg-muted/50 border rounded-md min-h-16 max-h-32 overflow-y-auto ${className}`}>
+        <div className="text-xs leading-relaxed w-full break-words">
+          {safeValue}
+        </div>
+      </div>
     )
   }
 
   return (
     <div ref={containerRef} className="relative">
-      <Input
-        ref={inputRef}
+      <Textarea
+        ref={textareaRef}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -10,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScaForm } from '@/components/cupping/sca-form'
 import { SimpleForm } from '@/components/cupping/simple-form'
 import { DomsForm } from '@/components/cupping/doms-form'
-import { NewWordsReview } from '@/components/cupping/new-words-review'
+import { SaveWordModal } from '@/components/cupping/save-word-modal'
 import { getDefaultScaScores, calculateScaTotalScore, getDefaultSimpleScores, calculateSimpleTotalScore, getDefaultDomsScores, calculateDomsTotalScore } from '@cuppingtraining/shared/cupping'
 import type { ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType } from '@cuppingtraining/shared/types'
 
@@ -23,12 +24,31 @@ interface SampleState {
 type PageState = 'setup' | 'scoring' | 'results'
 
 export default function SoloCuppingPage() {
-  const [pageState, setPageState] = useState<PageState>('setup')
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  const [pageState, setPageState] = useState<PageState>(() => {
+    const state = searchParams.get('state') as PageState
+    return ['setup', 'scoring', 'results'].includes(state) ? state : 'setup'
+  })
   const [formType, setFormType] = useState<CuppingFormType>('simple')
   const [samples, setSamples] = useState<SampleState[]>([
     { id: crypto.randomUUID(), label: '', scores: getDefaultSimpleScores() },
   ])
   const [activeTab, setActiveTab] = useState<string>('')
+  const [showSaveWordModal, setShowSaveWordModal] = useState(false)
+
+  // Update URL when page state changes
+  const updatePageState = useCallback((newState: PageState) => {
+    setPageState(newState)
+    const url = new URL(window.location.href)
+    if (newState === 'setup') {
+      url.searchParams.delete('state')
+    } else {
+      url.searchParams.set('state', newState)
+    }
+    router.replace(url.pathname + url.search, { scroll: false })
+  }, [router])
 
   const getDefaultScores = useCallback(() => {
     if (formType === 'simple') return getDefaultSimpleScores()
@@ -74,20 +94,20 @@ export default function SoloCuppingPage() {
   const handleStart = useCallback(() => {
     if (samples.length === 0) return
     setActiveTab(samples[0].id)
-    setPageState('scoring')
-  }, [samples])
+    updatePageState('scoring')
+  }, [samples, updatePageState])
 
   const handleFinish = useCallback(() => {
-    setPageState('results')
-  }, [])
+    updatePageState('results')
+  }, [updatePageState])
 
   const handleStartOver = useCallback(() => {
     setSamples([
       { id: crypto.randomUUID(), label: '', scores: getDefaultScores() },
     ])
     setActiveTab('')
-    setPageState('setup')
-  }, [getDefaultScores])
+    updatePageState('setup')
+  }, [getDefaultScores, updatePageState])
 
   // Setup
   if (pageState === 'setup') {
@@ -209,17 +229,15 @@ export default function SoloCuppingPage() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full">
-              {samples.map((sample) => {
-                const total = calcTotal(sample.scores)
-                return (
-                  <TabsTrigger key={sample.id} value={sample.id} className="flex-1">
+            <div className="overflow-x-auto">
+              <TabsList className="w-max min-w-full">
+                {samples.map((sample) => (
+                  <TabsTrigger key={sample.id} value={sample.id} className="flex-none min-w-fit px-4">
                     <span className="truncate max-w-[6rem]">{sample.label || `Sample ${samples.indexOf(sample) + 1}`}</span>
-                    <span className="ml-1 text-xs text-muted-foreground">{total.toFixed(1)}</span>
                   </TabsTrigger>
-                )
-              })}
-            </TabsList>
+                ))}
+              </TabsList>
+            </div>
 
             {samples.map((sample) => (
               <TabsContent key={sample.id} value={sample.id}>
@@ -279,17 +297,18 @@ export default function SoloCuppingPage() {
           </CardContent>
         </Card>
 
-        <NewWordsReview sampleScores={samples} formType={formType} />
 
         {/* Detailed scores per sample */}
         <Tabs defaultValue={samples[0]?.id}>
-          <TabsList className="w-full">
-            {samples.map((sample) => (
-              <TabsTrigger key={sample.id} value={sample.id} className="flex-1 truncate">
-                {sample.label || `Sample ${samples.indexOf(sample) + 1}`}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="overflow-x-auto">
+            <TabsList className="w-max min-w-full">
+              {samples.map((sample) => (
+                <TabsTrigger key={sample.id} value={sample.id} className="flex-none min-w-fit px-4 truncate">
+                  {sample.label || `Sample ${samples.indexOf(sample) + 1}`}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           {samples.map((sample) => (
             <TabsContent key={sample.id} value={sample.id}>
@@ -326,6 +345,24 @@ export default function SoloCuppingPage() {
             </Button>
           </Link>
         </div>
+        
+        {/* Floating Save Word Button - only show in results */}
+        {pageState === 'results' && (
+          <button
+            onClick={() => setShowSaveWordModal(true)}
+            className="fixed bottom-6 right-6 z-50 bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg hover:bg-primary/90 transition-colors text-sm font-medium flex items-center gap-2"
+          >
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
+            </svg>
+            Save New Word
+          </button>
+        )}
+
+        <SaveWordModal 
+          isOpen={showSaveWordModal} 
+          onClose={() => setShowSaveWordModal(false)} 
+        />
       </div>
     </div>
   )
