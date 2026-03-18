@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ interface SampleState {
 
 type PageState = 'setup' | 'scoring' | 'results'
 
-export default function SoloCuppingPage() {
+function SoloCuppingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   
@@ -372,5 +372,17 @@ export default function SoloCuppingPage() {
         />
       </div>
     </div>
+  )
+}
+
+export default function SoloCuppingPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    }>
+      <SoloCuppingContent />
+    </Suspense>
   )
 }

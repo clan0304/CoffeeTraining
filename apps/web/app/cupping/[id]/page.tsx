@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@clerk/nextjs'
@@ -52,7 +52,7 @@ interface SampleScoreState {
   scores: ScaCuppingScores | SimpleCuppingScores
 }
 
-export default function CuppingRoomPage() {
+function CuppingRoomContent() {
   const params = useParams()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1388,5 +1388,17 @@ export default function CuppingRoomPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function CuppingRoomPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Loading room...</p>
+      </div>
+    }>
+      <CuppingRoomContent />
+    </Suspense>
   )
 }
