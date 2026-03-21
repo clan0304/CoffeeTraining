@@ -323,7 +323,9 @@ export default function FriendsPage() {
                 </button>
               </span>
             ))}
+          </div>
         </div>
+      )}
         </div>
       </div>
     </div>
