@@ -161,13 +161,30 @@ export default function FriendsPage() {
   )
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">Friends</h1>
-        <p className="text-sm text-muted-foreground">
-          Send a friend request by username. Accepted friends appear in room invite quick-pick.
-        </p>
-      </div>
+    <div className="min-h-screen bg-black relative overflow-hidden">
+      {/* Animated Background Grid */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f2937_1px,transparent_1px),linear-gradient(to_bottom,#1f2937_1px,transparent_1px)] bg-size-[64px_64px] opacity-30"></div>
+      
+      {/* Radial Gradient Overlay */}
+      <div className="absolute inset-0 bg-gradient-radial from-pink-900/20 via-transparent to-transparent"></div>
+      
+      {/* Floating Orbs */}
+      <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse"></div>
+      <div className="absolute top-3/4 left-1/4 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}}></div>
+      <div className="absolute top-1/2 right-1/2 w-80 h-80 bg-rose-500/5 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
+
+      <div className="relative z-10 min-h-screen pt-20">
+        <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl lg:text-5xl font-bold mb-4 font-ubuntu">
+              <span className="bg-linear-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
+                Friends
+              </span>
+            </h1>
+            <p className="text-lg text-gray-300 max-w-xl mx-auto">
+              Send a friend request by username. Accepted friends appear in room invite quick-pick.
+            </p>
+          </div>
 
       {/* Send Request */}
       <div className="flex gap-2">
@@ -306,9 +323,9 @@ export default function FriendsPage() {
                 </button>
               </span>
             ))}
-          </div>
         </div>
-      )}
+        </div>
+      </div>
     </div>
   )
 }

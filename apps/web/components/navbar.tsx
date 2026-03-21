@@ -87,9 +87,9 @@ export function Navbar() {
         onClose={() => setShowSignOutModal(false)}
         onConfirm={() => setShowSignOutModal(false)}
       />
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+      <nav className="border-b border-gray-700/50 bg-black backdrop-blur supports-[backdrop-filter]:bg-black sticky top-0 z-50">
       <div className="max-w-4xl mx-auto flex items-center justify-between h-14 px-4">
-        <Link href="/" className="font-bold text-lg">
+        <Link href="/" className="font-bold text-lg text-white font-ubuntu">
           Cupping Training
         </Link>
 
@@ -101,8 +101,8 @@ export function Navbar() {
               href={link.href}
               className={`text-sm px-3 py-2 rounded-md transition-colors ${
                 pathname === link.href
-                  ? 'bg-accent font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  ? 'bg-blue-500/20 text-blue-300 font-medium'
+                  : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
               }`}
             >
               {link.label}
@@ -112,7 +112,7 @@ export function Navbar() {
             <div className="relative" ref={profileMenuRef}>
               <button
                 onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-                className="p-2 rounded-md hover:bg-accent transition-colors"
+                className="p-2 rounded-md hover:bg-gray-700/50 transition-colors"
                 aria-label="Profile menu"
               >
                 {user?.imageUrl ? (
@@ -127,23 +127,23 @@ export function Navbar() {
               </button>
               
               {profileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-background border rounded-md shadow-lg z-50">
-                  <div className="p-3 border-b">
-                    <p className="font-medium text-sm truncate">
+                <div className="absolute right-0 mt-2 w-56 bg-gray-900 border border-gray-700 rounded-md shadow-lg z-50">
+                  <div className="p-3 border-b border-gray-700">
+                    <p className="font-medium text-sm truncate text-white">
                       {profile?.username ? `@${profile.username}` : (user?.firstName || 'User')}
                     </p>
                   </div>
                   <div className="p-1">
                     <Link
                       href="/dashboard"
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-accent transition-colors"
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-gray-700/50 transition-colors text-gray-300 hover:text-white"
                       onClick={() => setProfileMenuOpen(false)}
                     >
                       <DashboardIcon className="w-4 h-4" />
                       Dashboard
                     </Link>
                     <button 
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-accent transition-colors text-left"
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-gray-700/50 transition-colors text-left text-gray-300 hover:text-white"
                       onClick={() => {
                         setProfileMenuOpen(false)
                         setShowSignOutModal(true)
@@ -167,7 +167,7 @@ export function Navbar() {
 
         {/* Mobile hamburger button */}
         <button
-          className="sm:hidden p-2 rounded-md hover:bg-accent transition-colors"
+          className="sm:hidden p-2 rounded-md hover:bg-gray-700/50 transition-colors text-white"
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
         >
@@ -189,15 +189,15 @@ export function Navbar() {
 
       {/* Mobile dropdown menu */}
       {menuOpen && (
-        <div className="sm:hidden border-t px-4 py-2 space-y-1 bg-background">
+        <div className="sm:hidden border-t border-gray-700/50 px-4 py-2 space-y-1 bg-black">
           {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               className={`block text-sm px-3 py-2 rounded-md transition-colors ${
                 pathname === link.href
-                  ? 'bg-accent font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  ? 'bg-blue-500/20 text-blue-300 font-medium'
+                  : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
               }`}
             >
               {link.label}
@@ -205,20 +205,20 @@ export function Navbar() {
           ))}
           {isSignedIn ? (
             <>
-              <div className="px-3 py-2 border-t border-b">
-                <p className="font-medium text-sm truncate">
+              <div className="px-3 py-2 border-t border-b border-gray-700">
+                <p className="font-medium text-sm truncate text-white">
                   {profile?.username ? `@${profile.username}` : (user?.firstName || 'User')}
                 </p>
               </div>
               <Link
                 href="/dashboard"
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors"
               >
                 <DashboardIcon className="w-4 h-4" />
                 Dashboard
               </Link>
               <button 
-                className="flex items-center gap-2 w-full text-left text-sm px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                className="flex items-center gap-2 w-full text-left text-sm px-3 py-2 rounded-md text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors"
                 onClick={() => {
                   setMenuOpen(false)
                   setShowSignOutModal(true)
@@ -230,7 +230,7 @@ export function Navbar() {
             </>
           ) : (
             <SignInButton>
-              <button className="w-full text-left text-sm px-3 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors">
+              <button className="w-full text-left text-sm px-3 py-2 rounded-md text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors">
                 Sign In
               </button>
             </SignInButton>
