@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Ubuntu } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Navbar } from "@/components/navbar";
 import { GlobalInvitationNotifier } from "@/components/global-invitation-notifier";
+import { SessionKeeper } from "@/components/session-keeper";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,11 +33,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: "#3B82F6",
+        },
+      }}
+      sessionOptions={{
+        tokenLifetime: "8 hours",
+        inactivityTimeout: "2 hours",
+        multisession: false,
+      }}
+    >
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} ${ubuntu.variable} antialiased`}
         >
+          <SessionKeeper />
           <Navbar />
           <GlobalInvitationNotifier />
           {children}

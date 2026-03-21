@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useSession } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { Countdown } from '@/components/training/countdown'
 import { RoomLobby } from '@/components/rooms/room-lobby'
@@ -42,6 +42,7 @@ function RoomPageContent() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
+  const { session } = useSession()
   const roomId = params.id as string
 
   // Room basic state
@@ -49,6 +50,38 @@ function RoomPageContent() {
   const [currentUserProfileId, setCurrentUserProfileId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Session keep-alive during game
+  useEffect(() => {
+    if (!user || !session) return
+
+    const keepAlive = setInterval(async () => {
+      try {
+        // Touch Clerk session to keep it alive
+        await session.touch()
+      } catch (error) {
+        console.error('Keep-alive error:', error)
+      }
+    }, 5 * 60 * 1000) // Every 5 minutes
+
+    return () => clearInterval(keepAlive)
+  }, [user, session])
+
+  // Visibility change handler to refresh session when tab becomes active
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && session) {
+        try {
+          await session.touch()
+        } catch (error) {
+          console.error('Session refresh on visibility change:', error)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [session])
 
   // Invite state
   const [inviteUsername, setInviteUsername] = useState('')

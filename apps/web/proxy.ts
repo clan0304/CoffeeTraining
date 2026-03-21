@@ -25,6 +25,10 @@ function getSupabaseAdmin() {
   )
 }
 
+// Simple cache for onboarding status to reduce DB calls
+const onboardingCache = new Map<string, { status: boolean; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 export default clerkMiddleware(async (auth, req) => {
   const { userId } = await auth()
 
@@ -39,15 +43,33 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(authUrl)
   }
 
-  // Check onboarding status from Supabase
-  const supabase = getSupabaseAdmin()
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('onboarding_completed')
-    .eq('clerk_id', userId)
-    .single()
+  // Check cache first
+  const cached = onboardingCache.get(userId)
+  const now = Date.now()
+  let onboardingComplete = false
 
-  const onboardingComplete = profile?.onboarding_completed === true
+  if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+    onboardingComplete = cached.status
+  } else {
+    // Check onboarding status from Supabase only if not cached or expired
+    try {
+      const supabase = getSupabaseAdmin()
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('onboarding_completed')
+        .eq('clerk_id', userId)
+        .single()
+
+      onboardingComplete = profile?.onboarding_completed === true
+      
+      // Update cache
+      onboardingCache.set(userId, { status: onboardingComplete, timestamp: now })
+    } catch (error) {
+      console.error('Onboarding check error:', error)
+      // If there's an error, allow the request to continue
+      return NextResponse.next()
+    }
+  }
 
   // If user is on onboarding page but already completed, redirect to home
   if (isOnboardingRoute(req) && onboardingComplete) {

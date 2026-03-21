@@ -19,9 +19,20 @@ export function useSupabaseClient(): SupabaseClient {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        },
         accessToken: async () => {
-          const token = await sessionRef.current?.getToken()
-          return token ?? null
+          try {
+            // Force token refresh if needed
+            const token = await sessionRef.current?.getToken({ template: undefined })
+            return token ?? null
+          } catch (error) {
+            console.error('Token refresh error:', error)
+            return null
+          }
         },
       }
     )
