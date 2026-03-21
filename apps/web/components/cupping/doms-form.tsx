@@ -4,11 +4,13 @@ import { useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { ScaForm } from './sca-form'
 import { AutocompleteNotesInput } from './autocomplete-notes-input'
-import type { DomsCuppingScores, ScaCuppingScores } from '@cuppingtraining/shared/types'
+import type { DomsCuppingScores, ScaCuppingScores, OthersNotes } from '@cuppingtraining/shared/types'
 
 interface DomsFormProps {
   scores: DomsCuppingScores
   onChange: (scores: DomsCuppingScores) => void
+  othersNotes?: OthersNotes | null
+  onOthersNotesChange?: (notes: OthersNotes | null) => void
   readOnly?: boolean
 }
 
@@ -57,7 +59,7 @@ function DomsSlider({
   )
 }
 
-export function DomsForm({ scores, onChange, readOnly }: DomsFormProps) {
+export function DomsForm({ scores, onChange, othersNotes, onOthersNotesChange, readOnly }: DomsFormProps) {
   const handleScaChange = useCallback(
     (scaScores: ScaCuppingScores) => {
       onChange({ ...scores, ...scaScores })
@@ -75,7 +77,13 @@ export function DomsForm({ scores, onChange, readOnly }: DomsFormProps) {
   return (
     <div className="space-y-4">
       {/* SCA portion */}
-      <ScaForm scores={scores} onChange={handleScaChange} readOnly={readOnly} />
+      <ScaForm 
+        scores={scores} 
+        onChange={handleScaChange} 
+        othersNotes={othersNotes}
+        onOthersNotesChange={onOthersNotesChange}
+        readOnly={readOnly} 
+      />
 
       {/* Dom's Extra Attributes */}
       <SectionHeader>Dom&apos;s Extra Attributes</SectionHeader>

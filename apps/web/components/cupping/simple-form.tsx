@@ -3,12 +3,14 @@
 import { useCallback, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { AutocompleteNotesInput } from './autocomplete-notes-input'
-import type { SimpleCuppingScores } from '@cuppingtraining/shared/types'
+import type { SimpleCuppingScores, OthersNotes } from '@cuppingtraining/shared/types'
 import { calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 
 interface SimpleFormProps {
   scores: SimpleCuppingScores
   onChange: (scores: SimpleCuppingScores) => void
+  othersNotes?: OthersNotes | null
+  onOthersNotesChange?: (notes: OthersNotes | null) => void
   readOnly?: boolean
 }
 
@@ -59,6 +61,8 @@ function AttributeRow({
   notes,
   onNotesChange,
   placeholder,
+  othersNotes,
+  onOthersNotesChange,
   readOnly,
 }: {
   label: string
@@ -67,6 +71,8 @@ function AttributeRow({
   notes: string
   onNotesChange: (v: string) => void
   placeholder: string
+  othersNotes?: string
+  onOthersNotesChange?: (v: string) => void
   readOnly?: boolean
 }) {
   return (
@@ -78,25 +84,58 @@ function AttributeRow({
       <div className="mb-2">
         <StarRating value={score} onChange={onScoreChange} readOnly={readOnly} />
       </div>
-      <div className="mt-auto">
-        <AutocompleteNotesInput
-          value={notes}
-          onChange={onNotesChange}
-          readOnly={readOnly}
-          placeholder={placeholder}
-        />
+      <div className="space-y-3 mt-auto">
+        {/* My Notes */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">My Notes</label>
+          <AutocompleteNotesInput
+            value={notes}
+            onChange={onNotesChange}
+            readOnly={readOnly}
+            placeholder={placeholder}
+          />
+        </div>
+        {/* Others' Notes */}
+        {onOthersNotesChange && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Others' Notes</label>
+            <textarea
+              value={othersNotes || ''}
+              onChange={(e) => onOthersNotesChange(e.target.value)}
+              readOnly={readOnly}
+              placeholder="e.g., John: citrus, bright\nSarah: chocolate notes"
+              className="w-full min-h-16 px-3 py-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 /* -- Main form ------------------------------------------------------------ */
-export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
+export function SimpleForm({ scores, onChange, othersNotes, onOthersNotesChange, readOnly }: SimpleFormProps) {
   const update = useCallback(
     (partial: Partial<SimpleCuppingScores>) => {
       onChange({ ...scores, ...partial })
     },
     [scores, onChange]
+  )
+
+  const updateOthersNotes = useCallback(
+    (attribute: string, value: string) => {
+      if (!onOthersNotesChange) return
+      const key = `${attribute}_others` as keyof OthersNotes
+      const newNotes = { ...(othersNotes || {}), [key]: value || undefined }
+      // Clean up empty values
+      Object.keys(newNotes).forEach(k => {
+        if (!newNotes[k as keyof OthersNotes]) {
+          delete newNotes[k as keyof OthersNotes]
+        }
+      })
+      onOthersNotesChange(Object.keys(newNotes).length > 0 ? newNotes : null)
+    },
+    [othersNotes, onOthersNotesChange]
   )
 
   const totalScore = useMemo(() => calculateSimpleTotalScore(scores), [scores])
@@ -123,6 +162,8 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
             onScoreChange={(v) => update({ [`${attr.key}_score`]: v } as Partial<SimpleCuppingScores>)}
             notes={scores[`${attr.key}_notes` as `${AttributeKey}_notes`]}
             onNotesChange={(v) => update({ [`${attr.key}_notes`]: v } as Partial<SimpleCuppingScores>)}
+            othersNotes={othersNotes?.[`${attr.key}_others` as keyof OthersNotes]}
+            onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes(attr.key, v) : undefined}
             placeholder={attr.placeholder}
             readOnly={readOnly}
           />
@@ -130,15 +171,34 @@ export function SimpleForm({ scores, onChange, readOnly }: SimpleFormProps) {
       </div>
 
       {/* Overall notes */}
-      <div className="rounded-lg border bg-card p-4 space-y-2">
+      <div className="rounded-lg border bg-card p-4 space-y-3">
         <span className="text-sm font-medium">Overall Notes</span>
-        <AutocompleteNotesInput
-          value={scores.overall_notes}
-          onChange={(v) => update({ overall_notes: v })}
-          readOnly={readOnly}
-          placeholder="General impressions..."
-          className="text-xs min-h-16 border-dashed"
-        />
+        
+        {/* My Overall Notes */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">My Notes</label>
+          <AutocompleteNotesInput
+            value={scores.overall_notes}
+            onChange={(v) => update({ overall_notes: v })}
+            readOnly={readOnly}
+            placeholder="General impressions..."
+            className="text-xs min-h-16 border-dashed"
+          />
+        </div>
+
+        {/* Others' Overall Notes */}
+        {onOthersNotesChange && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Others' Notes</label>
+            <textarea
+              value={othersNotes?.overall_others || ''}
+              onChange={(e) => updateOthersNotes('overall', e.target.value)}
+              readOnly={readOnly}
+              placeholder="e.g., John: well balanced\nSarah: a bit too acidic for me"
+              className="w-full min-h-16 px-3 py-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring border-dashed"
+            />
+          </div>
+        )}
       </div>
     </div>
   )

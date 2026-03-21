@@ -379,6 +379,16 @@ export interface CuppingSample {
   created_at: string
 }
 
+// Others' notes structure for each attribute
+export interface OthersNotes {
+  aroma_others?: string
+  acidity_others?: string
+  sweetness_others?: string
+  body_others?: string
+  aftertaste_others?: string
+  overall_others?: string
+}
+
 export interface CuppingScore {
   id: string
   sample_id: string
@@ -386,7 +396,7 @@ export interface CuppingScore {
   form_type: CuppingFormType
   scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores
   total_score: number | null
-  notes: string | null
+  notes: OthersNotes | null
   created_at: string
 }
 
@@ -431,4 +441,5 @@ export interface CuppingSessionDetailData {
   samples: Array<CuppingSample & { coffeeName: string; coffeeLabel: string }>
   scores: Array<CuppingScore & { username: string; sampleNumber: number }>
   playerCount: number
+  currentUserProfileId?: string
 }

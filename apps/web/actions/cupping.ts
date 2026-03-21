@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { createAdminSupabaseClient } from '@/lib/supabase/admin'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingDashboardData, CuppingSessionDetailData } from '@cuppingtraining/shared/types'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingDashboardData, CuppingSessionDetailData, OthersNotes } from '@cuppingtraining/shared/types'
 
 // =============================================
 // HELPER: Resolve Clerk auth to user_profiles UUID
@@ -311,7 +311,12 @@ export async function startCuppingSession(
 
 export async function submitCuppingScores(
   roomId: string,
-  scores: Array<{ sampleNumber: number; scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores; totalScore: number }>
+  scores: Array<{ 
+    sampleNumber: number; 
+    scores: ScaCuppingScores | SimpleCuppingScores | DomsCuppingScores; 
+    totalScore: number;
+    othersNotes?: OthersNotes | null;
+  }>
 ): Promise<{ success?: boolean; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
@@ -371,6 +376,7 @@ export async function submitCuppingScores(
     form_type: formType,
     scores: s.scores as unknown as Record<string, unknown>,
     total_score: s.totalScore,
+    notes: s.othersNotes as unknown as Record<string, unknown> | null,
   })).filter((s) => s.sample_id)
 
   if (scoreInserts.length === 0) {
@@ -810,6 +816,7 @@ export async function getCuppingSessionDetail(
       samples: samplesWithCoffees as Array<CuppingSample & { coffeeName: string; coffeeLabel: string }>,
       scores: scoresWithDetails as Array<CuppingScore & { username: string; sampleNumber: number }>,
       playerCount: scorerIds.length,
+      currentUserProfileId: profileId,
     },
   }
 }

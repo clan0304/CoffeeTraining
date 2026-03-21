@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
-import type { SimpleCuppingScores } from '@cuppingtraining/shared/types'
+import type { SimpleCuppingScores, OthersNotes } from '@cuppingtraining/shared/types'
 import { calculateSimpleTotalScore } from '@cuppingtraining/shared/cupping'
 import { StarRating } from './StarRating'
 import { AutocompleteNotesInput } from './AutocompleteNotesInput'
@@ -9,6 +9,8 @@ import { colors } from '../../lib/colors'
 interface SimpleFormProps {
   scores: SimpleCuppingScores
   onChange: (scores: SimpleCuppingScores) => void
+  othersNotes?: OthersNotes | null
+  onOthersNotesChange?: (notes: OthersNotes | null) => void
   readOnly?: boolean
 }
 

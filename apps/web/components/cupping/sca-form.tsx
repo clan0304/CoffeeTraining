@@ -3,12 +3,14 @@
 import { useCallback, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { AutocompleteNotesInput } from './autocomplete-notes-input'
-import type { ScaCuppingScores } from '@cuppingtraining/shared/types'
+import type { ScaCuppingScores, OthersNotes } from '@cuppingtraining/shared/types'
 import { calculateScaTotalScore } from '@cuppingtraining/shared/cupping'
 
 interface ScaFormProps {
   scores: ScaCuppingScores
   onChange: (scores: ScaCuppingScores) => void
+  othersNotes?: OthersNotes | null
+  onOthersNotesChange?: (notes: OthersNotes | null) => void
   readOnly?: boolean
 }
 
@@ -86,6 +88,8 @@ function AttributeBox({
   onScoreChange,
   notes,
   onNotesChange,
+  othersNotes,
+  onOthersNotesChange,
   readOnly,
   children,
 }: {
@@ -94,6 +98,8 @@ function AttributeBox({
   onScoreChange: (v: number) => void
   notes: string
   onNotesChange: (v: string) => void
+  othersNotes?: string
+  onOthersNotesChange?: (v: string) => void
   readOnly?: boolean
   children?: React.ReactNode
 }) {
@@ -109,13 +115,30 @@ function AttributeBox({
         <ScoreSlider value={score} onChange={onScoreChange} readOnly={readOnly} />
       </div>
       {children && <div className="mb-2">{children}</div>}
-      <div className="mt-auto">
-        <AutocompleteNotesInput
-          value={notes}
-          onChange={onNotesChange}
-          readOnly={readOnly}
-          placeholder="Notes..."
-        />
+      <div className="space-y-3 mt-auto">
+        {/* My Notes */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">My Notes</label>
+          <AutocompleteNotesInput
+            value={notes}
+            onChange={onNotesChange}
+            readOnly={readOnly}
+            placeholder="Notes..."
+          />
+        </div>
+        {/* Others' Notes */}
+        {onOthersNotesChange && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Others' Notes</label>
+            <textarea
+              value={othersNotes || ''}
+              onChange={(e) => onOthersNotesChange(e.target.value)}
+              readOnly={readOnly}
+              placeholder="e.g., John: bright citrus\nSarah: mild acidity"
+              className="w-full min-h-16 px-3 py-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -128,6 +151,8 @@ function CupBox({
   onChange,
   notes,
   onNotesChange,
+  othersNotes,
+  onOthersNotesChange,
   readOnly,
 }: {
   label: string
@@ -135,6 +160,8 @@ function CupBox({
   onChange: (cups: boolean[]) => void
   notes: string
   onNotesChange: (v: string) => void
+  othersNotes?: string
+  onOthersNotesChange?: (v: string) => void
   readOnly?: boolean
 }) {
   const score = cups.filter(Boolean).length * 2
@@ -166,13 +193,30 @@ function CupBox({
           </button>
         ))}
       </div>
-      <div className="mt-auto">
-        <AutocompleteNotesInput
-          value={notes}
-          onChange={onNotesChange}
-          readOnly={readOnly}
-          placeholder="Notes..."
-        />
+      <div className="space-y-3 mt-auto">
+        {/* My Notes */}
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">My Notes</label>
+          <AutocompleteNotesInput
+            value={notes}
+            onChange={onNotesChange}
+            readOnly={readOnly}
+            placeholder="Notes..."
+          />
+        </div>
+        {/* Others' Notes */}
+        {onOthersNotesChange && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Others' Notes</label>
+            <textarea
+              value={othersNotes || ''}
+              onChange={(e) => onOthersNotesChange(e.target.value)}
+              readOnly={readOnly}
+              placeholder="e.g., John: good uniformity\nSarah: some inconsistency"
+              className="w-full min-h-16 px-3 py-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -251,12 +295,28 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 /* ── Main form ────────────────────────────────────────────── */
-export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
+export function ScaForm({ scores, onChange, othersNotes, onOthersNotesChange, readOnly }: ScaFormProps) {
   const update = useCallback(
     (partial: Partial<ScaCuppingScores>) => {
       onChange({ ...scores, ...partial })
     },
     [scores, onChange]
+  )
+
+  const updateOthersNotes = useCallback(
+    (attribute: string, value: string) => {
+      if (!onOthersNotesChange) return
+      const key = `${attribute}_others` as keyof OthersNotes
+      const newNotes = { ...(othersNotes || {}), [key]: value || undefined }
+      // Clean up empty values
+      Object.keys(newNotes).forEach(k => {
+        if (!newNotes[k as keyof OthersNotes]) {
+          delete newNotes[k as keyof OthersNotes]
+        }
+      })
+      onOthersNotesChange(Object.keys(newNotes).length > 0 ? newNotes : null)
+    },
+    [othersNotes, onOthersNotesChange]
   )
 
   const totalScore = useMemo(() => calculateScaTotalScore(scores), [scores])
@@ -281,6 +341,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ fragrance_score: v })}
           notes={scores.fragrance_notes}
           onNotesChange={(v) => update({ fragrance_notes: v })}
+          othersNotes={othersNotes?.aroma_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('aroma', v) : undefined}
           readOnly={readOnly}
         >
           <div className="grid grid-cols-2 gap-3">
@@ -307,6 +369,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ flavor_score: v })}
           notes={scores.flavor_notes}
           onNotesChange={(v) => update({ flavor_notes: v })}
+          othersNotes={othersNotes?.aroma_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('aroma', v) : undefined}
           readOnly={readOnly}
         />
 
@@ -316,6 +380,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ aftertaste_score: v })}
           notes={scores.aftertaste_notes}
           onNotesChange={(v) => update({ aftertaste_notes: v })}
+          othersNotes={othersNotes?.aftertaste_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('aftertaste', v) : undefined}
           readOnly={readOnly}
         />
 
@@ -325,6 +391,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ acidity_score: v })}
           notes={scores.acidity_notes}
           onNotesChange={(v) => update({ acidity_notes: v })}
+          othersNotes={othersNotes?.acidity_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('acidity', v) : undefined}
           readOnly={readOnly}
         >
           <IntensitySlider
@@ -342,6 +410,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ body_score: v })}
           notes={scores.body_notes}
           onNotesChange={(v) => update({ body_notes: v })}
+          othersNotes={othersNotes?.body_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('body', v) : undefined}
           readOnly={readOnly}
         >
           <IntensitySlider
@@ -359,6 +429,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ balance_score: v })}
           notes={scores.balance_notes}
           onNotesChange={(v) => update({ balance_notes: v })}
+          othersNotes={othersNotes?.sweetness_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('sweetness', v) : undefined}
           readOnly={readOnly}
         />
 
@@ -368,6 +440,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onScoreChange={(v) => update({ overall_score: v })}
           notes={scores.overall_notes}
           onNotesChange={(v) => update({ overall_notes: v })}
+          othersNotes={othersNotes?.overall_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('overall', v) : undefined}
           readOnly={readOnly}
         />
       </div>
@@ -381,6 +455,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onChange={(cups) => update({ uniformity_cups: cups })}
           notes={scores.uniformity_notes}
           onNotesChange={(v) => update({ uniformity_notes: v })}
+          othersNotes={othersNotes?.sweetness_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('sweetness', v) : undefined}
           readOnly={readOnly}
         />
         <CupBox
@@ -389,6 +465,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onChange={(cups) => update({ clean_cup_cups: cups })}
           notes={scores.clean_cup_notes}
           onNotesChange={(v) => update({ clean_cup_notes: v })}
+          othersNotes={othersNotes?.sweetness_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('sweetness', v) : undefined}
           readOnly={readOnly}
         />
         <CupBox
@@ -397,6 +475,8 @@ export function ScaForm({ scores, onChange, readOnly }: ScaFormProps) {
           onChange={(cups) => update({ sweetness_cups: cups })}
           notes={scores.sweetness_notes}
           onNotesChange={(v) => update({ sweetness_notes: v })}
+          othersNotes={othersNotes?.sweetness_others}
+          onOthersNotesChange={onOthersNotesChange ? (v) => updateOthersNotes('sweetness', v) : undefined}
           readOnly={readOnly}
         />
       </div>

@@ -37,7 +37,7 @@ import {
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUPPING_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import { FriendInvitePicker } from '@/components/rooms/friend-invite-picker'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingSettings } from '@cuppingtraining/shared/types'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingSettings, OthersNotes } from '@cuppingtraining/shared/types'
 
 type RoomWithDetails = Room & {
   players: Array<RoomPlayer & { profile: PublicProfile | null }>
@@ -50,6 +50,7 @@ type GamePhase = 'lobby' | 'scoring' | 'submitted' | 'results'
 interface SampleScoreState {
   sampleNumber: number
   scores: ScaCuppingScores | SimpleCuppingScores
+  othersNotes?: OthersNotes | null
 }
 
 function CuppingRoomContent() {
@@ -420,6 +421,12 @@ function CuppingRoomContent() {
     )
   }, [])
 
+  const updateSampleOthersNotes = useCallback((sampleNumber: number, othersNotes: OthersNotes | null) => {
+    setSampleScores((prev) =>
+      prev.map((s) => (s.sampleNumber === sampleNumber ? { ...s, othersNotes } : s))
+    )
+  }, [])
+
   const handleSubmitScores = async () => {
     setSubmittingScores(true)
 
@@ -431,6 +438,7 @@ function CuppingRoomContent() {
         : roomFormType === 'doms'
           ? calculateDomsTotalScore(s.scores as DomsCuppingScores)
           : calculateScaTotalScore(s.scores as ScaCuppingScores),
+      othersNotes: s.othersNotes,
     }))
 
     const result = await submitCuppingScores(roomId, scoresToSubmit)
@@ -793,18 +801,21 @@ function CuppingRoomContent() {
                                   <SimpleForm
                                     scores={score.scores as SimpleCuppingScores}
                                     onChange={() => {}}
+                                    othersNotes={score.user_id === currentUserProfileId ? (score.notes as OthersNotes | null) : null}
                                     readOnly
                                   />
                                 ) : score.form_type === 'doms' ? (
                                   <DomsForm
                                     scores={score.scores as DomsCuppingScores}
                                     onChange={() => {}}
+                                    othersNotes={score.user_id === currentUserProfileId ? (score.notes as OthersNotes | null) : null}
                                     readOnly
                                   />
                                 ) : (
                                   <ScaForm
                                     scores={score.scores as ScaCuppingScores}
                                     onChange={() => {}}
+                                    othersNotes={score.user_id === currentUserProfileId ? (score.notes as OthersNotes | null) : null}
                                     readOnly
                                   />
                                 )
@@ -1048,16 +1059,22 @@ function CuppingRoomContent() {
                   <SimpleForm
                     scores={sample.scores as SimpleCuppingScores}
                     onChange={(scores) => updateSampleScores(sample.sampleNumber, scores)}
+                    othersNotes={sample.othersNotes}
+                    onOthersNotesChange={(notes) => updateSampleOthersNotes(sample.sampleNumber, notes)}
                   />
                 ) : roomFormType === 'doms' ? (
                   <DomsForm
                     scores={sample.scores as DomsCuppingScores}
                     onChange={(scores) => updateSampleScores(sample.sampleNumber, scores)}
+                    othersNotes={sample.othersNotes}
+                    onOthersNotesChange={(notes) => updateSampleOthersNotes(sample.sampleNumber, notes)}
                   />
                 ) : (
                   <ScaForm
                     scores={sample.scores as ScaCuppingScores}
                     onChange={(scores) => updateSampleScores(sample.sampleNumber, scores)}
+                    othersNotes={sample.othersNotes}
+                    onOthersNotesChange={(notes) => updateSampleOthersNotes(sample.sampleNumber, notes)}
                   />
                 )}
               </TabsContent>

@@ -97,6 +97,35 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - Community Notes section was removed to reduce UI clutter and focus on scoring data.
 - Utility: `packages/shared/src/cupping/session-report.ts` — exports `generateSessionReport()` and types (`SessionReport`, `CoffeeSummary`, `AttributeAverage`, etc.).
 
+### Others' Notes Feature
+- **Purpose**: Allow users to record notes about what other participants said during cupping sessions
+- **Data Structure**: `cupping_scores.notes` JSONB field stores attribute-specific others' notes
+  ```typescript
+  interface OthersNotes {
+    aroma_others?: string      // "John: citrus, bright\nSarah: chocolate notes"
+    acidity_others?: string    // "Mike: bright acidity\nAlex: mild"
+    sweetness_others?: string
+    body_others?: string
+    aftertaste_others?: string
+    overall_others?: string
+  }
+  ```
+- **UI Implementation**:
+  - Each cupping form attribute has two note sections: "My Notes" (for personal evaluation) and "Others' Notes" (for recording what others said)
+  - "My Notes": stored in `scores` JSONB (e.g., `aroma_notes`, `acidity_notes`)
+  - "Others' Notes": stored in `notes` JSONB (e.g., `aroma_others`, `acidity_others`)
+- **Privacy**: Others' notes are only visible to the note author in results views (not shared with other participants)
+- **Forms Updated**: Simple Form, SCA Form, Dom's Form all include others' notes functionality
+- **Database Migration**: 
+  ```sql
+  ALTER TABLE cupping_scores 
+  ALTER COLUMN notes TYPE JSONB 
+  USING CASE 
+    WHEN notes IS NULL OR notes = '' THEN NULL
+    ELSE json_build_object('legacy_notes', notes)
+  END;
+  ```
+
 ### Mobile API Layer
 - Mobile app communicates with the web app's Next.js API routes (not server actions directly).
 - API routes live in `apps/web/app/api/mobile/` and wrap existing server action logic.
@@ -136,7 +165,7 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 - `room_invitations` — room_id, invited_user_id (UUID FK → user_profiles.id), invited_by (UUID FK → user_profiles.id), status
 - `cupping_sessions` — user_id, room_id
 - `cupping_samples` — session_id, sample_number, sample_label
-- `cupping_scores` — sample_id, user_id, form_type ('sca' | 'simple'), scores (JSONB), total_score
+- `cupping_scores` — sample_id, user_id, form_type ('sca' | 'simple' | 'doms'), scores (JSONB), total_score, notes (JSONB for others' notes)
 - `user_flavor_words` — user_id (UUID FK → user_profiles.id), word (TEXT), unique on (user_id, word)
 - `user_friends` — user_id (UUID FK → user_profiles.id), friend_id (UUID FK → user_profiles.id), unique on (user_id, friend_id), check user_id != friend_id. Bidirectional rows (both A→B and B→A) created on request acceptance.
 - `user_friend_requests` — sender_id, recipient_id (UUID FKs → user_profiles.id), status ('pending'|'accepted'|'declined'), unique on (sender_id, recipient_id). Acceptance creates bidirectional `user_friends` rows.
@@ -321,6 +350,47 @@ package.json            # Workspace root
 - Solo flows (Cup Tasters + Cupping) are entirely client-side on mobile — no API calls needed during gameplay.
 - Mobile root `index.tsx` checks profile via API on launch — shows "Could not connect to server" with Retry on network failure instead of false-redirecting to onboarding.
 - `EXPO_PUBLIC_API_URL` should be `http://localhost:3000` for iOS simulator, or the Mac's local IP (e.g. `http://172.20.10.2:3000`) for physical devices.
+
+## Code Organization & File Size Guidelines
+
+### File Size Limits
+- **Maximum 1000 lines per file** — files exceeding this should be refactored into smaller, focused modules
+- **Prefer 500-800 lines** as the sweet spot for readability and maintainability
+- **Break down large components** into hooks, UI components, and utilities
+
+### Refactoring Strategy
+When files exceed 1000 lines, follow this pattern:
+
+1. **Extract Custom Hooks**: Move state management and effects to separate hooks
+   - Example: `useRoomGameState()`, `useRoomRealtime()`
+   - Location: `/hooks/` directory
+
+2. **Extract UI Components**: Split large render functions into focused components
+   - Example: `RoomLobby`, `RoomPlaying`, `RoomInputting` 
+   - Location: `/components/` directory with appropriate sub-folders
+
+3. **Extract Types**: Move type definitions to shared type files
+   - Example: `RoomWithDetails` in `/types/room.ts`
+   - Import from `@/types/` for consistency
+
+4. **Keep Main File as Orchestrator**: Main page/component should focus on:
+   - Data loading and error handling
+   - Event handler coordination  
+   - Conditional rendering logic
+   - Props passing between components
+
+### Examples of Good Refactoring
+- **Before**: `rooms/[id]/page.tsx` (1708 lines)
+- **After**: 
+  - `rooms/[id]/page.tsx` (731 lines) - main orchestrator
+  - `hooks/use-room-game-state.ts` (160 lines) - game state management
+  - `hooks/use-room-realtime.ts` (170 lines) - realtime communication
+  - `components/rooms/room-lobby.tsx` (400+ lines) - lobby UI
+  - `components/rooms/room-playing.tsx` (200+ lines) - playing UI
+  - `components/rooms/room-inputting.tsx` (200+ lines) - inputting UI
+  - `types/room.ts` (5 lines) - type definitions
+
+This results in better code organization, easier testing, and improved maintainability.
 
 ## Commands
 - `npm run dev` — start all apps via Turborepo
