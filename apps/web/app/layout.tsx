@@ -39,11 +39,6 @@ export default function RootLayout({
           colorPrimary: "#3B82F6",
         },
       }}
-      sessionOptions={{
-        tokenLifetime: "8 hours",
-        inactivityTimeout: "2 hours",
-        multisession: false,
-      }}
     >
       <html lang="en">
         <body
