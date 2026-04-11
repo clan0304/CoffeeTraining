@@ -22,6 +22,8 @@ export function useSupabaseClient(): SupabaseClient {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
+          detectSessionInUrl: false,
+          flowType: 'pkce',
           storage: typeof window !== 'undefined' ? window.localStorage : undefined,
         },
         accessToken: async () => {
