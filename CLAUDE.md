@@ -403,3 +403,25 @@ This results in better code organization, easier testing, and improved maintaina
 - **Phase 1** (done): Onboarding, bottom tab navigation, Solo Cup Tasters, Solo Cupping, Profile (with username editing)
 - **Phase 2** (done): Dashboard with stats, accuracy trend, coffee performance, session history (Cup Tasters + Cupping tabs)
 - **Phase 3** (future): Multiplayer rooms with real-time Broadcast sync (requires ~25 API routes)
+
+## Session Management & Authentication
+
+### SessionKeeper Component
+- **Location**: `apps/web/components/session-keeper.tsx` — global session keep-alive component mounted in root layout
+- **Purpose**: Maintains Clerk session persistence during long gaming sessions (1+ hours) without user logout
+- **Implementation**: 
+  - **30-minute automatic refresh**: Background `session.touch()` every 30 minutes to prevent token expiration
+  - **Page focus refresh**: Session refresh when user returns to tab from other apps/tabs
+  - **No activity tracking**: Activity-based refresh removed to prevent UX issues and complexity
+- **Session Strategy**: 
+  - Supports multi-tab usage during games (users can check other tabs/apps without losing session)
+  - Eliminates logout issues during extended gameplay sessions
+  - Simple dual-mechanism approach: periodic + focus-based refresh
+- **Error Handling**: Session refresh failures logged but don't interrupt user experience
+- **Usage**: Automatically active for all authenticated users, no configuration needed
+
+### Authentication Architecture
+- **Clerk Integration**: Uses `@clerk/nextjs` with third-party provider setup for Supabase
+- **Token Management**: Short-lived JWTs (60-second default) with automatic background refresh
+- **Session Persistence**: Hybrid approach with long-lived cookies on Clerk's domain + short-lived session tokens
+- **Security**: Automatic CSRF protection, session fixation prevention, XSS mitigation through short token lifetimes

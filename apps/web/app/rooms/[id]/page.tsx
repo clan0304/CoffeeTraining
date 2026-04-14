@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useUser, useSession } from '@clerk/nextjs'
+import { useUser } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { Countdown } from '@/components/training/countdown'
 import { RoomLobby } from '@/components/rooms/room-lobby'
@@ -42,7 +42,6 @@ function RoomPageContent() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
-  const { session } = useSession()
   const roomId = params.id as string
 
   // Room basic state
@@ -51,37 +50,7 @@ function RoomPageContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Session keep-alive during game
-  useEffect(() => {
-    if (!user || !session) return
-
-    const keepAlive = setInterval(async () => {
-      try {
-        // Touch Clerk session to keep it alive
-        await session.touch()
-      } catch (error) {
-        console.error('Keep-alive error:', error)
-      }
-    }, 5 * 60 * 1000) // Every 5 minutes
-
-    return () => clearInterval(keepAlive)
-  }, [user, session])
-
-  // Visibility change handler to refresh session when tab becomes active
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (!document.hidden && session) {
-        try {
-          await session.touch()
-        } catch (error) {
-          console.error('Session refresh on visibility change:', error)
-        }
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [session])
+  // Session keep-alive is handled globally by SessionKeeper component
 
   // Invite state
   const [inviteUsername, setInviteUsername] = useState('')
@@ -156,22 +125,7 @@ function RoomPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]) // Only roomId to avoid re-running when gameState changes
 
-  // Handle visibility change (mobile app switching)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && room) {
-        console.log('[Mobile] App became visible, refreshing room state')
-        loadRoom()
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [room, loadRoom])
-
-  // Handle page focus (desktop/mobile)
+  // Page focus handler for room state refresh
   useEffect(() => {
     const handleFocus = () => {
       if (room) {
@@ -207,8 +161,7 @@ function RoomPageContent() {
     setShowCountdown: gameState.setShowCountdown,
     setWaitingForTimer: gameState.setWaitingForTimer,
     setCountdownFrom: gameState.setCountdownFrom,
-    setRoom,
-    room
+    setRoom
   })
 
   // Event handlers

@@ -21,7 +21,6 @@ interface UseRoomRealtimeProps {
   setWaitingForTimer: (waiting: boolean) => void
   setCountdownFrom: (count: number) => void
   setRoom: React.Dispatch<React.SetStateAction<any>>
-  room: any
 }
 
 export function useRoomRealtime({
@@ -37,8 +36,7 @@ export function useRoomRealtime({
   setShowCountdown,
   setWaitingForTimer,
   setCountdownFrom,
-  setRoom,
-  room
+  setRoom
 }: UseRoomRealtimeProps) {
   const router = useRouter()
   const realtime = useMemo(() => getRealtimeClient(), [])
@@ -81,7 +79,7 @@ export function useRoomRealtime({
           setWaitingForTimer(true)
           setAnswers(Array(8).fill(null))
           setCorrectAnswers(Array(8).fill(null))
-          updateGameState('playing', room?.timer_started_at ? { timer: room.timer_started_at } : {})
+          updateGameState('playing')
         }
       })
 
@@ -201,7 +199,8 @@ export function useRoomRealtime({
       setRoomChannel(null)
       setChannelReady(false)
     }
-  }, [roomId, realtime, updateGameState, setAnswers, setCorrectAnswers, setFinishedPlayers, setMyElapsedMs, setIsPaused, setIsOvertime, setOvertimeRows, setShowCountdown, setWaitingForTimer, setCountdownFrom, setRoom, router, room?.timer_started_at])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, updateGameState, router])
 
   const broadcastUpdate = () => {
     roomChannel?.send({ type: 'broadcast', event: CUP_TASTERS_EVENTS.ROOM_UPDATED, payload: {} })
