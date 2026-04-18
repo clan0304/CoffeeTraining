@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession } from '@clerk/nextjs'
 import { getRealtimeClient } from '@/lib/supabase/client'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import { getRoomDetails } from '@/actions/rooms'
+import { callWithAuthRetry } from '@/lib/auth-retry'
 import { GamePhase } from './use-room-game-state'
 
 interface UseRoomRealtimeProps {
@@ -39,9 +41,23 @@ export function useRoomRealtime({
   setRoom
 }: UseRoomRealtimeProps) {
   const router = useRouter()
+  const { session } = useSession()
+  const sessionRef = useRef(session)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
   const realtime = useMemo(() => getRealtimeClient(), [])
   const [roomChannel, setRoomChannel] = useState<ReturnType<typeof realtime.channel> | null>(null)
   const [channelReady, setChannelReady] = useState(false)
+  // Bumping this forces the channel setup effect to re-run (e.g. after tab
+  // focus when the channel gave up retrying while hidden).
+  const [reconnectTrigger, setReconnectTrigger] = useState(0)
+
+  const reloadRoom = () =>
+    callWithAuthRetry(
+      () => getRoomDetails(roomId),
+      { onRetry: () => sessionRef.current?.touch() }
+    )
 
   // Real-time subscription using Broadcast (anon client, no auth needed)
   useEffect(() => {
@@ -133,7 +149,7 @@ export function useRoomRealtime({
         setOvertimeRows(new Set())
         setShowCountdown(false)
         setWaitingForTimer(false)
-        const result = await getRoomDetails(roomId)
+        const result = await reloadRoom()
         if (!result.error && result.room) {
           setRoom(result.room)
         }
@@ -147,7 +163,7 @@ export function useRoomRealtime({
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.PLAYER_LEFT }, async () => {
         console.log('[Realtime] Received player_left broadcast')
-        const result = await getRoomDetails(roomId)
+        const result = await reloadRoom()
         if (!result.error && result.room) {
           setRoom(result.room)
         }
@@ -155,7 +171,7 @@ export function useRoomRealtime({
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.ROOM_UPDATED }, async (payload) => {
         console.log('[Realtime] Received room_updated broadcast:', payload)
-        const result = await getRoomDetails(roomId)
+        const result = await reloadRoom()
         if (!result.error && result.room) {
           setRoom(result.room)
         }
@@ -200,7 +216,29 @@ export function useRoomRealtime({
       setChannelReady(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, updateGameState, router])
+  }, [roomId, updateGameState, router, reconnectTrigger])
+
+  // If the channel died while the tab was hidden (Supabase realtime gives up
+  // after MAX_RETRIES), reconnect when the user returns. Also trigger a fresh
+  // room load so state is current post-reconnect.
+  useEffect(() => {
+    if (!roomId) return
+
+    const maybeReconnect = () => {
+      if (document.hidden) return
+      if (!channelReady) {
+        console.log('[Realtime] Tab active but channel not ready — reconnecting')
+        setReconnectTrigger((v) => v + 1)
+      }
+    }
+
+    window.addEventListener('focus', maybeReconnect)
+    document.addEventListener('visibilitychange', maybeReconnect)
+    return () => {
+      window.removeEventListener('focus', maybeReconnect)
+      document.removeEventListener('visibilitychange', maybeReconnect)
+    }
+  }, [roomId, channelReady])
 
   const broadcastUpdate = () => {
     roomChannel?.send({ type: 'broadcast', event: CUP_TASTERS_EVENTS.ROOM_UPDATED, payload: {} })

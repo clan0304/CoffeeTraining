@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useSession } from '@clerk/nextjs'
+import { callWithAuthRetry } from '@/lib/auth-retry'
 import { Button } from '@/components/ui/button'
 import { Countdown } from '@/components/training/countdown'
 import { RoomLobby } from '@/components/rooms/room-lobby'
@@ -42,6 +43,11 @@ function RoomPageContent() {
   const params = useParams()
   const router = useRouter()
   const { user } = useUser()
+  const { session } = useSession()
+  const sessionRef = useRef(session)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
   const roomId = params.id as string
 
   // Room basic state
@@ -49,6 +55,11 @@ function RoomPageContent() {
   const [currentUserProfileId, setCurrentUserProfileId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Tracks whether we've ever successfully loaded the room. Used so post-load
+  // transient auth errors (e.g. during Clerk token rotation on tab focus) do
+  // NOT clobber the rendered room state with "Room Not Found".
+  const roomLoadedRef = useRef(false)
 
   // Session keep-alive is handled globally by SessionKeeper component
 
@@ -74,19 +85,32 @@ function RoomPageContent() {
   // Game state hook
   const gameState = useRoomGameState()
 
-  // Load room data
+  // Load room data (retries through transient Clerk token rotations).
   const loadRoom = useCallback(async () => {
-    const result = await getRoomDetails(roomId)
+    const result = await callWithAuthRetry(
+      () => getRoomDetails(roomId),
+      { onRetry: () => sessionRef.current?.touch() }
+    )
     if (result.error) {
-      setError(result.error)
+      // If we've already rendered the room once, keep showing it. Flashing
+      // "Room Not Found" on a transient error (tab refocus, token refresh)
+      // would kick the player out mid-game. Only the initial load may set
+      // the hard error state.
+      if (!roomLoadedRef.current) {
+        setError(result.error)
+      } else {
+        console.warn('[loadRoom] transient error suppressed:', result.error)
+      }
     } else if (result.room) {
+      roomLoadedRef.current = true
+      setError(null)
       setRoom(result.room)
       if (result.currentUserProfileId) {
         setCurrentUserProfileId(result.currentUserProfileId)
       }
       gameState.setActiveSessionId(result.activeSessionId ?? null)
       gameState.setCompletedRoundsCount(result.completedRoundsCount ?? 0)
-      
+
       // Restore game state if needed
       gameState.restoreGameState(result.room)
     }
@@ -96,29 +120,34 @@ function RoomPageContent() {
   // Initialize room data on mount
   useEffect(() => {
     let cancelled = false
-    
+
     const initializeRoom = async () => {
-      const result = await getRoomDetails(roomId)
+      const result = await callWithAuthRetry(
+        () => getRoomDetails(roomId),
+        { onRetry: () => sessionRef.current?.touch() }
+      )
       if (cancelled) return
-      
+
       if (result.error) {
-        setError(result.error)
+        if (!roomLoadedRef.current) setError(result.error)
       } else if (result.room) {
+        roomLoadedRef.current = true
+        setError(null)
         setRoom(result.room)
         if (result.currentUserProfileId) {
           setCurrentUserProfileId(result.currentUserProfileId)
         }
         gameState.setActiveSessionId(result.activeSessionId ?? null)
         gameState.setCompletedRoundsCount(result.completedRoundsCount ?? 0)
-        
+
         // Restore game state if needed
         gameState.restoreGameState(result.room)
       }
       setLoading(false)
     }
-    
+
     initializeRoom()
-    
+
     return () => {
       cancelled = true
     }

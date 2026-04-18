@@ -425,3 +425,16 @@ This results in better code organization, easier testing, and improved maintaina
 - **Token Management**: Short-lived JWTs (60-second default) with automatic background refresh
 - **Session Persistence**: Hybrid approach with long-lived cookies on Clerk's domain + short-lived session tokens
 - **Security**: Automatic CSRF protection, session fixation prevention, XSS mitigation through short token lifetimes
+
+### Session Management Optimizations (2024-04-14)
+- **Problem**: Auth persistence issues in game rooms — users getting logged out during long sessions
+- **Root Causes**: 
+  - Conflicting session management between global SessionKeeper and room-specific refresh logic
+  - Realtime channel recreating on every game state change (timer_started_at dependency)
+  - Multiple visibilitychange listeners causing session conflicts
+- **Solutions Applied**:
+  - **Removed duplicate session refresh**: Eliminated room-specific `session.touch()` calls (every 5 min), rely on global SessionKeeper (30 min)
+  - **Fixed Realtime dependencies**: Removed `room.timer_started_at` from useRoomRealtime dependencies — channels only recreate on `roomId` change
+  - **Unified event listeners**: Single visibilitychange listener in SessionKeeper, removed duplicate room-level listeners
+  - **Simplified auth flow**: Room pages focus on game logic only, delegate all session management to global components
+- **Result**: Stable authentication during 1+ hour gaming sessions, no conflicts between Clerk + Supabase realtime

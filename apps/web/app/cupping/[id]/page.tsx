@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useSession } from '@clerk/nextjs'
 import { getRealtimeClient } from '@/lib/supabase/client'
+import { callWithAuthRetry } from '@/lib/auth-retry'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -58,6 +59,11 @@ function CuppingRoomContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useUser()
+  const { session } = useSession()
+  const sessionRef = useRef(session)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
   const realtime = useMemo(() => getRealtimeClient(), [])
   const roomId = params.id as string
 
@@ -67,6 +73,9 @@ function CuppingRoomContent() {
   const [coffeeCount, setCoffeeCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Guards against Clerk token-rotation races clobbering the UI with "Room
+  // Not Found" after the room already rendered once.
+  const roomLoadedRef = useRef(false)
 
   // Invite state
   const [inviteUsername, setInviteUsername] = useState('')
@@ -135,10 +144,17 @@ function CuppingRoomContent() {
   }, [router])
 
   const loadRoom = useCallback(async () => {
-    const result = await getCuppingRoomDetails(roomId)
+    const result = await callWithAuthRetry(
+      () => getCuppingRoomDetails(roomId),
+      { onRetry: () => sessionRef.current?.touch() }
+    )
     if (result.error) {
-      setError(result.error)
+      // Preserve existing room UI on transient post-load auth errors.
+      if (!roomLoadedRef.current) setError(result.error)
+      else console.warn('[cupping loadRoom] transient error suppressed:', result.error)
     } else if (result.room) {
+      roomLoadedRef.current = true
+      setError(null)
       setRoom(result.room)
       if (result.currentUserProfileId) {
         setCurrentUserProfileId(result.currentUserProfileId)
@@ -212,7 +228,10 @@ function CuppingRoomContent() {
       })
 
       channel.on('broadcast', { event: CUPPING_EVENTS.PLAYER_LEFT }, async () => {
-        const result = await getCuppingRoomDetails(roomId)
+        const result = await callWithAuthRetry(
+          () => getCuppingRoomDetails(roomId),
+          { onRetry: () => sessionRef.current?.touch() }
+        )
         if (!result.error && result.room) {
           setRoom(result.room)
           setCoffeeCount(result.coffeeCount ?? 0)
@@ -220,7 +239,10 @@ function CuppingRoomContent() {
       })
 
       channel.on('broadcast', { event: CUPPING_EVENTS.ROOM_UPDATED }, async () => {
-        const result = await getCuppingRoomDetails(roomId)
+        const result = await callWithAuthRetry(
+          () => getCuppingRoomDetails(roomId),
+          { onRetry: () => sessionRef.current?.touch() }
+        )
         if (!result.error && result.room) {
           setRoom(result.room)
           setCoffeeCount(result.coffeeCount ?? 0)
