@@ -7,7 +7,8 @@ import { getRealtimeClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getMyInvitations, respondToInvitation } from '@/actions/rooms'
-import { getUserInvitationsChannel, getRoomSyncChannel, INVITATION_EVENTS, CUP_TASTERS_EVENTS } from '@cuppingtraining/shared/constants'
+import { notifyRoomUpdated } from '@/lib/realtime/room-broadcast'
+import { getUserInvitationsChannel, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import type { Room, RoomInvitation, PublicProfile } from '@cuppingtraining/shared/types'
 
 type InvitationWithDetails = RoomInvitation & {
@@ -85,14 +86,7 @@ export function GlobalInvitationNotifier() {
       if (accept) {
         const invitation = invitations.find((i) => i.id === invitationId)
         if (invitation) {
-          // Broadcast room_updated so the host's room page refreshes
-          const notifyChannel = realtime.channel(getRoomSyncChannel(invitation.room_id))
-          notifyChannel.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              notifyChannel.send({ type: 'broadcast', event: CUP_TASTERS_EVENTS.ROOM_UPDATED, payload: {} })
-              setTimeout(() => realtime.removeChannel(notifyChannel), 1000)
-            }
-          })
+          await notifyRoomUpdated(invitation.room_id, invitation.room.type)
           const path = invitation.room.type === 'cupping'
             ? `/cupping/${invitation.room_id}`
             : `/rooms/${invitation.room_id}`

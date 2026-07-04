@@ -7,13 +7,15 @@ import { getRealtimeClient } from '@/lib/supabase/client'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUP_TASTERS_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import { getRoomDetails } from '@/actions/rooms'
 import { callWithAuthRetry } from '@/lib/auth-retry'
-import { GamePhase } from './use-room-game-state'
+import type { RoomWithDetails } from '@/types/room'
+import type { GamePhase } from './use-room-game-state'
 
 interface UseRoomRealtimeProps {
   roomId: string
   updateGameState: (phase: GamePhase | 'lobby', params?: Record<string, string>) => void
   setAnswers: (answers: (number | null)[]) => void
   setCorrectAnswers: (answers: (number | null)[]) => void
+  makeEmptyAnswers: () => (number | null)[]
   setFinishedPlayers: React.Dispatch<React.SetStateAction<Array<{ userId: string; username: string; elapsedMs: number }>>>
   setMyElapsedMs: (ms: number | null) => void
   setIsPaused: (paused: boolean) => void
@@ -22,7 +24,7 @@ interface UseRoomRealtimeProps {
   setShowCountdown: (show: boolean) => void
   setWaitingForTimer: (waiting: boolean) => void
   setCountdownFrom: (count: number) => void
-  setRoom: React.Dispatch<React.SetStateAction<any>>
+  setRoom: React.Dispatch<React.SetStateAction<RoomWithDetails | null>>
 }
 
 export function useRoomRealtime({
@@ -30,6 +32,7 @@ export function useRoomRealtime({
   updateGameState,
   setAnswers,
   setCorrectAnswers,
+  makeEmptyAnswers,
   setFinishedPlayers,
   setMyElapsedMs,
   setIsPaused,
@@ -91,10 +94,12 @@ export function useRoomRealtime({
         if (remaining > 0) {
           setCountdownFrom(remaining)
           setShowCountdown(true)
+          setRoom((prev) => prev ? { ...prev, status: 'countdown' as const, updated_at: new Date(startedAt).toISOString() } : prev)
         } else {
           setWaitingForTimer(true)
-          setAnswers(Array(8).fill(null))
-          setCorrectAnswers(Array(8).fill(null))
+          setAnswers(makeEmptyAnswers())
+          setCorrectAnswers(makeEmptyAnswers())
+          setRoom((prev) => prev ? { ...prev, status: 'countdown' as const, updated_at: new Date(startedAt).toISOString() } : prev)
           updateGameState('playing')
         }
       })
@@ -109,23 +114,23 @@ export function useRoomRealtime({
         setOvertimeRows(new Set())
         setFinishedPlayers([])
         setMyElapsedMs(null)
-        setAnswers(Array(8).fill(null))
-        setCorrectAnswers(Array(8).fill(null))
+        setAnswers(makeEmptyAnswers())
+        setCorrectAnswers(makeEmptyAnswers())
         updateGameState('playing', { timer: timerStartedAt })
-        setRoom((prev: any) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt, paused_at: null } : prev)
+        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt, paused_at: null } : prev)
       })
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.GAME_PAUSE }, (payload) => {
         console.log('[Realtime] Received game_pause broadcast:', payload)
         setIsPaused(true)
-        setRoom((prev: any) => prev ? { ...prev, status: 'paused' as const } : prev)
+        setRoom((prev) => prev ? { ...prev, status: 'paused' as const } : prev)
       })
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.GAME_RESUME }, (payload) => {
         console.log('[Realtime] Received game_resume broadcast:', payload)
         const { newTimerStartedAt } = payload.payload as { newTimerStartedAt: string }
         setIsPaused(false)
-        setRoom((prev: any) => prev ? { ...prev, status: 'playing' as const, timer_started_at: newTimerStartedAt, paused_at: null } : prev)
+        setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: newTimerStartedAt, paused_at: null } : prev)
       })
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.PLAYER_FINISHED }, (payload) => {
@@ -139,9 +144,16 @@ export function useRoomRealtime({
 
       channel.on('broadcast', { event: CUP_TASTERS_EVENTS.ROUND_ENDED }, async () => {
         console.log('[Realtime] Received round_ended broadcast')
+        setRoom((prev) => prev ? {
+          ...prev,
+          status: 'waiting' as const,
+          timer_started_at: null,
+          paused_at: null,
+          active_set_id: null,
+        } : prev)
         updateGameState('lobby')
-        setAnswers(Array(8).fill(null))
-        setCorrectAnswers(Array(8).fill(null))
+        setAnswers(makeEmptyAnswers())
+        setCorrectAnswers(makeEmptyAnswers())
         setFinishedPlayers([])
         setMyElapsedMs(null)
         setIsPaused(false)

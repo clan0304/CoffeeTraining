@@ -24,6 +24,7 @@ import {
   endCuppingSession,
   getCuppingResults,
   updateCuppingFormType,
+  updateCuppingVisibility,
 } from '@/actions/cupping'
 import {
   inviteUserByUsername,
@@ -38,7 +39,7 @@ import {
 } from '@/actions/rooms'
 import { getRoomSyncChannel, getUserInvitationsChannel, CUPPING_EVENTS, INVITATION_EVENTS } from '@cuppingtraining/shared/constants'
 import { FriendInvitePicker } from '@/components/rooms/friend-invite-picker'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingSettings, OthersNotes } from '@cuppingtraining/shared/types'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingVisibility, CuppingSettings, OthersNotes } from '@cuppingtraining/shared/types'
 
 type RoomWithDetails = Room & {
   players: Array<RoomPlayer & { profile: PublicProfile | null }>
@@ -175,6 +176,9 @@ function CuppingRoomContent() {
 
   // Get the room's current form type
   const roomFormType: CuppingFormType = (room?.settings as CuppingSettings)?.form_type || 'sca'
+
+  // Coffee name visibility: 'public' shows names during cupping, 'private' is blind (A/B/C)
+  const roomVisibility: CuppingVisibility = (room?.settings as CuppingSettings)?.visibility || 'private'
 
   // Initialize scoring state
   const initScoring = (count: number) => {
@@ -725,8 +729,8 @@ function CuppingRoomContent() {
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-primary">{sample.coffeeLabel}</span>
                         <div className="relative min-w-[160px] h-12 flex items-center justify-center">
-                          {revealedCoffees.has(sample.id) ? (
-                            <span 
+                          {roomVisibility === 'public' || revealedCoffees.has(sample.id) ? (
+                            <span
                               key={`revealed-${sample.id}`}
                               className="text-lg font-medium animate-in fade-in slide-in-from-bottom-2 duration-1000 fill-mode-both"
                             >
@@ -858,9 +862,11 @@ function CuppingRoomContent() {
           </div>
 
           {/* Statistics section - shown after individual reviews */}
-          <div className="text-center py-4">
-            <p className="text-muted-foreground text-lg font-medium">Coffee names revealed</p>
-          </div>
+          {roomVisibility !== 'public' && (
+            <div className="text-center py-4">
+              <p className="text-muted-foreground text-lg font-medium">Coffee names revealed</p>
+            </div>
+          )}
           
           {/* Summary card with average scores */}
           <Card>
@@ -1063,15 +1069,20 @@ function CuppingRoomContent() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <div className="overflow-x-auto">
               <TabsList className="w-max min-w-full">
-                {sampleScores.map((sample) => (
-                  <TabsTrigger
-                    key={sample.sampleNumber}
-                    value={sample.sampleNumber.toString()}
-                    className="flex-none min-w-fit px-4"
-                  >
-                    <span>Sample {sample.sampleNumber}</span>
-                  </TabsTrigger>
-                ))}
+                {sampleScores.map((sample) => {
+                  const coffee = room.coffees[sample.sampleNumber - 1]
+                  const label = coffee?.label || `${sample.sampleNumber}`
+                  const showName = roomVisibility === 'public' && !!coffee?.name
+                  return (
+                    <TabsTrigger
+                      key={sample.sampleNumber}
+                      value={sample.sampleNumber.toString()}
+                      className="flex-none min-w-fit px-4"
+                    >
+                      <span>{showName ? `${label}: ${coffee.name}` : label}</span>
+                    </TabsTrigger>
+                  )
+                })}
               </TabsList>
             </div>
 
@@ -1327,7 +1338,11 @@ function CuppingRoomContent() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Coffees ({room.coffees.length})</CardTitle>
-              <CardDescription>Add coffees to score (names hidden from others)</CardDescription>
+              <CardDescription>
+                {roomVisibility === 'public'
+                  ? 'Add coffees to score — names are visible to all players'
+                  : 'Add coffees to score — names stay hidden (blind) until results'}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {room.coffees.length > 0 && (
@@ -1401,6 +1416,24 @@ function CuppingRoomContent() {
               </form>
             </CardContent>
           </Card>
+        ) : roomVisibility === 'public' && room.coffees.length > 0 ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Coffees ({room.coffees.length})</CardTitle>
+              <CardDescription>Names are shown — this is an open cupping</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {room.coffees.map((coffee) => (
+                <div
+                  key={coffee.id}
+                  className="flex items-center gap-3 py-2 px-3 bg-muted rounded-lg"
+                >
+                  <span className="font-bold text-primary">{coffee.label}</span>
+                  <span className="font-medium">{coffee.name}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         ) : (
           <Card>
             <CardContent className="pt-4">
@@ -1411,6 +1444,67 @@ function CuppingRoomContent() {
             </CardContent>
           </Card>
         )}
+
+        {/* Coffee Visibility */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Coffee Visibility</CardTitle>
+            <CardDescription>
+              {isHost && room.status === 'waiting'
+                ? 'Choose whether coffee names are shown during cupping'
+                : 'Coffee name visibility for this session'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              const currentVisibility = (room.settings as CuppingSettings)?.visibility || 'private'
+              const visibilityOptions: Array<{ value: CuppingVisibility; label: string; description: string }> = [
+                { value: 'private', label: 'Blind (Private)', description: 'Names hidden during cupping — shown as A, B, C. Revealed in results.' },
+                { value: 'public', label: 'Open (Public)', description: 'Coffee names are visible to everyone while cupping.' },
+              ]
+
+              return (
+                <div className="space-y-2">
+                  {visibilityOptions.map((option) => {
+                    const isSelected = currentVisibility === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={!isHost || room.status !== 'waiting'}
+                        onClick={async () => {
+                          if (!isHost || room.status !== 'waiting' || isSelected) return
+                          const result = await updateCuppingVisibility(roomId, option.value)
+                          if (!result.error) {
+                            loadRoom()
+                            broadcastUpdate()
+                          }
+                        }}
+                        className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
+                          isSelected
+                            ? 'border-primary bg-primary/5'
+                            : 'border-muted hover:border-muted-foreground/30'
+                        } ${!isHost || room.status !== 'waiting' ? 'cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{option.label}</p>
+                            <p className="text-sm text-muted-foreground">{option.description}</p>
+                          </div>
+                          {isSelected && (
+                            <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center shrink-0 ml-3">
+                              <div className="h-2 w-2 rounded-full bg-white" />
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </CardContent>
+        </Card>
 
         {/* Cupping Form */}
         <Card>

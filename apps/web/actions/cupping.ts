@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server'
 import { createAdminSupabaseClient } from '@/lib/supabase/admin'
-import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingDashboardData, CuppingSessionDetailData, OthersNotes } from '@cuppingtraining/shared/types'
+import type { Room, RoomPlayer, RoomInvitation, PublicProfile, RoomCoffee, CuppingSession, CuppingSample, CuppingScore, ScaCuppingScores, SimpleCuppingScores, DomsCuppingScores, CuppingFormType, CuppingVisibility, CuppingSettings, CuppingDashboardData, CuppingSessionDetailData, OthersNotes } from '@cuppingtraining/shared/types'
 
 // =============================================
 // HELPER: Resolve Clerk auth to user_profiles UUID
@@ -38,6 +38,7 @@ function generateRoomCode(): string {
 export async function createCuppingRoom(input: {
   name: string | null
   formType?: CuppingFormType
+  visibility?: CuppingVisibility
 }): Promise<{ room?: Room; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
@@ -62,6 +63,7 @@ export async function createCuppingRoom(input: {
 
   // Create the room with type='cupping'
   const formType = input.formType || 'sca'
+  const visibility = input.visibility || 'private'
   const { data: room, error: roomError } = await supabase
     .from('rooms')
     .insert({
@@ -69,7 +71,7 @@ export async function createCuppingRoom(input: {
       code,
       name: input.name?.trim() || null,
       type: 'cupping',
-      settings: { form_type: formType },
+      settings: { form_type: formType, visibility },
       timer_minutes: 0,
       status: 'waiting',
     })
@@ -125,6 +127,46 @@ export async function updateCuppingFormType(
   if (error) {
     console.error('Error updating form type:', error)
     return { error: 'Failed to update form type' }
+  }
+
+  return { success: true }
+}
+
+// =============================================
+// UPDATE CUPPING VISIBILITY (host only, waiting)
+// =============================================
+
+export async function updateCuppingVisibility(
+  roomId: string,
+  visibility: CuppingVisibility
+): Promise<{ success?: boolean; error?: string }> {
+  const profile = await getProfileId()
+  if (!profile) return { error: 'Not authenticated' }
+  const { profileId } = profile
+
+  const supabase = createAdminSupabaseClient()
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('host_id, status, settings')
+    .eq('id', roomId)
+    .single<{ host_id: string; status: string; settings: Record<string, unknown> }>()
+
+  if (!room) return { error: 'Room not found' }
+  if (room.host_id !== profileId) return { error: 'Only the host can change settings' }
+  if (room.status !== 'waiting') return { error: 'Cannot change settings after session started' }
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      settings: { ...room.settings, visibility },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+
+  if (error) {
+    console.error('Error updating visibility:', error)
+    return { error: 'Failed to update visibility' }
   }
 
   return { success: true }
@@ -206,15 +248,20 @@ export async function getCuppingRoomDetails(roomId: string): Promise<{
     invited_profile: profileMap.get(i.invited_user_id) || null,
   })) || []
 
-  // Non-host: hide coffee names (only return count)
+  // Coffee name visibility:
+  // - host always sees names
+  // - 'public' rooms reveal names to every player
+  // - 'private' (default / blind) rooms hide names from non-hosts (shown as A, B, C...)
   const coffeeList = (coffees || []) as RoomCoffee[]
+  const visibility = (room.settings as CuppingSettings)?.visibility || 'private'
+  const showNames = isHost || visibility === 'public'
 
   return {
     room: {
       ...room,
       players: playersWithProfiles as Array<RoomPlayer & { profile: PublicProfile | null }>,
       invitations: invitationsWithProfiles as Array<RoomInvitation & { invited_profile: PublicProfile | null }>,
-      coffees: isHost ? coffeeList : coffeeList.map((c) => ({ ...c, name: '', description: null })),
+      coffees: showNames ? coffeeList : coffeeList.map((c) => ({ ...c, name: '', description: null })),
     },
     currentUserProfileId: profileId,
     coffeeCount: coffeeList.length,

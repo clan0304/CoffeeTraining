@@ -89,10 +89,20 @@ export type RoomType = 'cup_tasters' | 'cupping'
 // Type-specific settings stored in JSONB
 export interface CupTastersSettings {
   // timer_minutes lives as a column for backward compat
+  // Number of triangulation rows ("sets" in competition terms) per round.
+  // Missing = 8 (rooms created before this setting existed).
+  sets_count?: number
 }
+
+// 'public'  = coffee names are visible to everyone during cupping
+// 'private' = blind: names hidden (shown as A, B, C...) until results
+export type CuppingVisibility = 'public' | 'private'
 
 export interface CuppingSettings {
   form_type: CuppingFormType
+  // Optional for backward compat with rooms created before this setting existed.
+  // Treat a missing value as 'private' (the original always-blind behaviour).
+  visibility?: CuppingVisibility
 }
 
 export type RoomSettings = CupTastersSettings | CuppingSettings

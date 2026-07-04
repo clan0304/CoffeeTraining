@@ -156,7 +156,7 @@ Lobby (waiting) → Select Set → Start Round → Countdown → Playing → Fin
 
 ## Database Schema (key tables)
 - `user_profiles` — id (UUID PK), clerk_id (TEXT, Clerk user ID for auth lookup), username, bio, photo_url
-- `rooms` — host_id (UUID FK → user_profiles.id), code, status, settings (JSONB, includes form_type), timer_minutes, timer_started_at, paused_at, active_set_id
+- `rooms` — host_id (UUID FK → user_profiles.id), code, status, settings (JSONB: cupping rooms store form_type/visibility; cup tasters rooms store sets_count = triangulation rows per set, 3/5/8, default 8), timer_minutes, timer_started_at, paused_at, active_set_id
 - `room_players` — room_id, user_id (UUID FK → user_profiles.id)
 - `room_coffees` — room_id, label (A/B/C...), name
 - `room_sets` — room_id, set_number

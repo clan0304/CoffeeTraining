@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { joinRoomByCode } from '@/actions/rooms'
+import { notifyRoomUpdated } from '@/lib/realtime/room-broadcast'
 
 export default function JoinRoomPage() {
   const router = useRouter()
@@ -31,6 +32,7 @@ export default function JoinRoomPage() {
     }
 
     if (result.room) {
+      await notifyRoomUpdated(result.room.id, result.room.type)
       router.push(`/rooms/${result.room.id}`)
     }
   }

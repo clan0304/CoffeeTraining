@@ -13,6 +13,7 @@ export default function CreateRoomPage() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [timerMinutes, setTimerMinutes] = useState(8)
+  const [setsCount, setSetsCount] = useState(8)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,6 +25,7 @@ export default function CreateRoomPage() {
     const result = await createRoom({
       name: name.trim() || null,
       timerMinutes,
+      setsCount,
     })
 
     if (result.error) {
@@ -112,6 +114,31 @@ export default function CreateRoomPage() {
                           }`}
                         >
                           {mins}m
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-white text-lg font-medium">Sets</Label>
+                      <p className="text-sm text-gray-300 mt-1">
+                        Competition standard is 8 sets (triangles)
+                      </p>
+                    </div>
+                    <div className="flex gap-3 justify-center pt-2">
+                      {[3, 5, 8].map((count) => (
+                        <Button
+                          key={count}
+                          type="button"
+                          onClick={() => setSetsCount(count)}
+                          className={`w-16 h-12 text-lg font-semibold rounded-xl transition-all duration-300 ${
+                            setsCount === count
+                              ? 'bg-linear-to-r from-blue-500 to-purple-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.5)] scale-110'
+                              : 'bg-gray-700/50 border border-gray-600/50 text-gray-200 hover:bg-gray-600/50 hover:border-blue-500/50'
+                          }`}
+                        >
+                          {count}
                         </Button>
                       ))}
                     </div>

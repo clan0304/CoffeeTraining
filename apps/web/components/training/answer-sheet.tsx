@@ -14,6 +14,8 @@ interface AnswerSheetProps {
   overtimeRows?: Set<number>  // Row indices whose answers were set/changed during overtime
 }
 
+const EMPTY_MAYBES: Set<number> = new Set()
+
 export function AnswerSheet({
   answers,
   correctAnswers,
@@ -23,10 +25,12 @@ export function AnswerSheet({
   mode = 'guess',
   overtimeRows,
 }: AnswerSheetProps) {
-  const rows = [0, 1, 2, 3, 4, 5, 6, 7]
+  // Row count follows the answers array (3/5/8 depending on room settings)
+  const rowCount = answers.length
+  const rows = Array.from({ length: rowCount }, (_, i) => i)
   const [expandedRow, setExpandedRow] = useState<number | null>(null)
   const [maybes, setMaybes] = useState<Set<number>[]>(
-    () => Array.from({ length: 8 }, () => new Set())
+    () => Array.from({ length: rowCount }, () => new Set())
   )
 
   const handleSelect = useCallback((rowIndex: number, position: number) => {
@@ -37,28 +41,30 @@ export function AnswerSheet({
     }
 
     const isCurrentAnswer = answers[rowIndex] === position
-    const isMaybe = maybes[rowIndex].has(position)
+    const isMaybe = (maybes[rowIndex] ?? EMPTY_MAYBES).has(position)
+
+    // Rebuild at the current row count in case the round's row count changed
+    // after mount (maybes state was sized at initial render).
+    const remapMaybes = (prev: Set<number>[], mutate: (target: Set<number>) => void) => {
+      const next = Array.from({ length: rowCount }, (_, i) =>
+        i === rowIndex ? new Set(prev[i] ?? []) : prev[i] ?? new Set<number>()
+      )
+      mutate(next[rowIndex])
+      return next
+    }
 
     if (isCurrentAnswer) {
       // Answer → Maybe (yellow): deselect answer, add to maybes
       onSelect(rowIndex, position) // toggles off in parent
-      setMaybes((prev) => {
-        const next = prev.map((s, i) => (i === rowIndex ? new Set(s) : s))
-        next[rowIndex].add(position)
-        return next
-      })
+      setMaybes((prev) => remapMaybes(prev, (target) => target.add(position)))
     } else if (isMaybe) {
       // Maybe → None: remove maybe mark
-      setMaybes((prev) => {
-        const next = prev.map((s, i) => (i === rowIndex ? new Set(s) : s))
-        next[rowIndex].delete(position)
-        return next
-      })
+      setMaybes((prev) => remapMaybes(prev, (target) => target.delete(position)))
     } else {
       // None → Answer: set as answer
       onSelect(rowIndex, position)
     }
-  }, [onSelect, answers, maybes, mode])
+  }, [onSelect, answers, maybes, mode, rowCount])
 
   const handleToggleExpand = useCallback((rowIndex: number) => {
     setExpandedRow((prev) => (prev === rowIndex ? null : rowIndex))
@@ -68,7 +74,7 @@ export function AnswerSheet({
   const calculateScore = (): number => {
     if (!correctAnswers) return 0
     let count = 0
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < rowCount; i++) {
       if (answers[i] !== null && correctAnswers[i] !== null && answers[i] === correctAnswers[i]) {
         count++
       }
@@ -99,11 +105,11 @@ export function AnswerSheet({
   const getSubtitle = () => {
     switch (mode) {
       case 'guess':
-        return `${answeredCount}/8 marked`
+        return `${answeredCount}/${rowCount} marked`
       case 'input':
         return revealedCount > 0 ? `${score}/${revealedCount} correct` : 'Tap the odd cup'
       case 'result':
-        return `Score: ${score}/8`
+        return `Score: ${score}/${rowCount}`
       default:
         return ''
     }
@@ -159,24 +165,24 @@ export function AnswerSheet({
             isExpanded={mode === 'guess' ? expandedRow === rowIndex : true}
             onToggleExpand={() => handleToggleExpand(rowIndex)}
             isGuessMode={mode === 'guess'}
-            maybePositions={maybes[rowIndex]}
+            maybePositions={maybes[rowIndex] ?? EMPTY_MAYBES}
             isOvertime={overtimeRows?.has(rowIndex)}
           />
         ))}
 
         {/* Score summary - only show when all rows are revealed */}
-        {(showResults || (mode === 'input' && revealedCount === 8)) && (
+        {(showResults || (mode === 'input' && revealedCount === rowCount)) && (
           <div className="pt-4 border-t mt-4">
             <div className="text-center">
               <div className="text-3xl font-bold">
-                {score}/8
+                {score}/{rowCount}
               </div>
               <div className="text-sm text-muted-foreground">
-                {score === 8 && 'Perfect! '}
-                {score >= 6 && score < 8 && 'Great job! '}
-                {score >= 4 && score < 6 && 'Good effort! '}
-                {score < 4 && 'Keep practicing! '}
-                ({Math.round((score / 8) * 100)}% correct)
+                {score === rowCount && 'Perfect! '}
+                {score < rowCount && score / rowCount >= 0.75 && 'Great job! '}
+                {score / rowCount >= 0.5 && score / rowCount < 0.75 && 'Good effort! '}
+                {score / rowCount < 0.5 && 'Keep practicing! '}
+                ({Math.round((score / rowCount) * 100)}% correct)
               </div>
             </div>
           </div>

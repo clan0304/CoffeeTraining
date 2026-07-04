@@ -35,6 +35,7 @@ function generateRoomCode(): string {
 const createRoomSchema = z.object({
   name: z.string().max(100, 'Room name must be less than 100 characters').nullable(),
   timerMinutes: z.number().min(1).max(30).default(8),
+  setsCount: z.number().int().min(3).max(12).default(8),
 })
 
 // =============================================
@@ -44,6 +45,7 @@ const createRoomSchema = z.object({
 export async function createRoom(input: {
   name: string | null
   timerMinutes?: number
+  setsCount?: number
 }): Promise<{ room?: Room; error?: string }> {
   const profile = await getProfileId()
   if (!profile) return { error: 'Not authenticated' }
@@ -79,6 +81,7 @@ export async function createRoom(input: {
       code,
       name: result.data.name,
       timer_minutes: result.data.timerMinutes || 8,
+      settings: { sets_count: result.data.setsCount || 8 },
       status: 'waiting',
     })
     .select()
@@ -987,9 +990,9 @@ export async function generateTriangulationSet(
   // Verify host
   const { data: room } = await supabase
     .from('rooms')
-    .select('host_id, status')
+    .select('host_id, status, settings')
     .eq('id', roomId)
-    .single<{ host_id: string; status: string }>()
+    .single<{ host_id: string; status: string; settings: { sets_count?: number } | null }>()
 
   if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can generate sets' }
@@ -998,6 +1001,8 @@ export async function generateTriangulationSet(
   if (room.status !== 'waiting') {
     return { error: 'Cannot generate sets after game has started' }
   }
+
+  const rowCount = room.settings?.sets_count ?? 8
 
   // Get coffees
   const { data: coffees } = await supabase
@@ -1049,8 +1054,8 @@ export async function generateTriangulationSet(
     return { error: 'Failed to create set' }
   }
 
-  // Generate 8 rows with BALANCED coffee usage
-  // Total cups = 8 rows x 3 cups = 24 cups
+  // Generate rows with BALANCED coffee usage (row count from room settings, default 8)
+  // Total cups = rowCount x 3 cups (e.g., 8 rows -> 24 cups)
   // Each coffee should appear roughly equally (e.g., 5 coffees -> 5,5,5,5,4)
   // Each coffee should also appear as the odd one out roughly equally
 
@@ -1070,7 +1075,7 @@ export async function generateTriangulationSet(
 
   const selectedRows: Array<{ pair: RoomCoffee; odd: RoomCoffee; oddPosition: number }> = []
 
-  for (let row = 0; row < 8; row++) {
+  for (let row = 0; row < rowCount; row++) {
     // Sort coffees by odd count (for selecting odd coffee — least odd first)
     const sortedByOddCount = [...coffees].sort((a, b) => {
       const oddA = oddCount.get(a.id) || 0
@@ -1249,9 +1254,9 @@ export async function createEmptySet(
   // Verify host
   const { data: room } = await supabase
     .from('rooms')
-    .select('host_id, status')
+    .select('host_id, status, settings')
     .eq('id', roomId)
-    .single<{ host_id: string; status: string }>()
+    .single<{ host_id: string; status: string; settings: { sets_count?: number } | null }>()
 
   if (!room || room.host_id !== profileId) {
     return { error: 'Only the host can create sets' }
@@ -1260,6 +1265,8 @@ export async function createEmptySet(
   if (room.status !== 'waiting') {
     return { error: 'Cannot create sets after game has started' }
   }
+
+  const rowCount = room.settings?.sets_count ?? 8
 
   // Get coffees
   const { data: coffees } = await supabase
@@ -1299,11 +1306,11 @@ export async function createEmptySet(
     return { error: 'Failed to create set' }
   }
 
-  // Create 8 empty rows with default values (first two coffees, random positions)
+  // Create empty rows with default values (first two coffees, random positions)
   const defaultPair = coffees[0]
   const defaultOdd = coffees[1]
 
-  const rowInserts = Array.from({ length: 8 }, (_, index) => ({
+  const rowInserts = Array.from({ length: rowCount }, (_, index) => ({
     set_id: newSet.id,
     row_number: index + 1,
     pair_coffee_id: defaultPair.id,

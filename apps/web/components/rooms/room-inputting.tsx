@@ -37,7 +37,7 @@ export function RoomInputting({
   onLeaveRoom
 }: RoomInputtingProps) {
   const correctCount = correctAnswers.filter((a) => a !== null).length
-  const allRevealed = correctCount === 8
+  const allRevealed = correctCount === correctAnswers.length
 
   // Format milliseconds to mm:ss
   const formatElapsedMs = (ms: number) => {

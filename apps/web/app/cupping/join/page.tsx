@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { joinRoomByCode } from '@/actions/rooms'
+import { notifyRoomUpdated } from '@/lib/realtime/room-broadcast'
 
 export default function JoinCuppingRoomPage() {
   const router = useRouter()
@@ -31,6 +32,7 @@ export default function JoinCuppingRoomPage() {
     }
 
     if (result.room) {
+      await notifyRoomUpdated(result.room.id, result.room.type)
       // Route based on room type
       const path = result.room.type === 'cupping'
         ? `/cupping/${result.room.id}`

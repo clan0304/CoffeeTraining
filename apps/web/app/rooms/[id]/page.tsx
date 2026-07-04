@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUser, useSession } from '@clerk/nextjs'
@@ -37,7 +37,18 @@ import {
   updateCoffee,
 } from '@/actions/rooms'
 import { CUP_TASTERS_EVENTS } from '@cuppingtraining/shared/constants'
+import type { CupTastersSettings } from '@cuppingtraining/shared/types'
 import type { RoomWithDetails } from '@/types/room'
+
+// Row count for the current round: the active set's rows, else the room's
+// configured sets_count (defaults to 8 for rooms created before this setting).
+function getRoomRowCount(room: RoomWithDetails): number {
+  const activeSet = room.active_set_id
+    ? room.sets.find((s) => s.id === room.active_set_id)
+    : null
+  if (activeSet && activeSet.rows.length > 0) return activeSet.rows.length
+  return (room.settings as CupTastersSettings | null)?.sets_count ?? 8
+}
 
 function RoomPageContent() {
   const params = useParams()
@@ -111,11 +122,16 @@ function RoomPageContent() {
       gameState.setActiveSessionId(result.activeSessionId ?? null)
       gameState.setCompletedRoundsCount(result.completedRoundsCount ?? 0)
 
-      // Restore game state if needed
-      gameState.restoreGameState(result.room)
+      // Reconcile local URL/phase/timer state against the DB canonical room state.
+      gameState.syncFromRoom(result.room, getRoomRowCount(result.room))
     }
     setLoading(false)
   }, [roomId, gameState])
+  const loadRoomRef = useRef(loadRoom)
+
+  useEffect(() => {
+    loadRoomRef.current = loadRoom
+  }, [loadRoom])
 
   // Initialize room data on mount
   useEffect(() => {
@@ -140,8 +156,8 @@ function RoomPageContent() {
         gameState.setActiveSessionId(result.activeSessionId ?? null)
         gameState.setCompletedRoundsCount(result.completedRoundsCount ?? 0)
 
-        // Restore game state if needed
-        gameState.restoreGameState(result.room)
+        // Reconcile local URL/phase/timer state against the DB canonical room state.
+        gameState.syncFromRoom(result.room, getRoomRowCount(result.room))
       }
       setLoading(false)
     }
@@ -154,34 +170,13 @@ function RoomPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]) // Only roomId to avoid re-running when gameState changes
 
-  // Page focus handler for room state refresh
-  useEffect(() => {
-    const handleFocus = () => {
-      if (room) {
-        console.log('[Focus] Page focused, checking room state')
-        loadRoom()
-      }
-    }
-
-    window.addEventListener('focus', handleFocus)
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [room, loadRoom])
-
-  // Watch room status and show countdown when status is 'countdown'
-  useEffect(() => {
-    if (room?.status === 'countdown' && !gameState.showCountdown) {
-      gameState.setShowCountdown(true)
-    }
-  }, [room?.status, gameState])
-
   // Realtime hook
   const realtime = useRoomRealtime({
     roomId,
     updateGameState: gameState.updateGameState,
     setAnswers: gameState.setAnswers,
     setCorrectAnswers: gameState.setCorrectAnswers,
+    makeEmptyAnswers: gameState.makeEmptyAnswers,
     setFinishedPlayers: gameState.setFinishedPlayers,
     setMyElapsedMs: gameState.setMyElapsedMs,
     setIsPaused: gameState.setIsPaused,
@@ -192,6 +187,41 @@ function RoomPageContent() {
     setCountdownFrom: gameState.setCountdownFrom,
     setRoom
   })
+
+  // Broadcast is fast but not durable. This fallback catches missed events
+  // (sleeping tabs, reconnects, transient channel errors) and lets the DB room
+  // row pull every client back to the same phase.
+  useEffect(() => {
+    const refreshRoomState = () => {
+      if (document.hidden || !roomLoadedRef.current) return
+      void loadRoomRef.current()
+    }
+
+    window.addEventListener('focus', refreshRoomState)
+    document.addEventListener('visibilitychange', refreshRoomState)
+
+    const interval = setInterval(refreshRoomState, realtime.channelReady ? 5000 : 1500)
+
+    return () => {
+      window.removeEventListener('focus', refreshRoomState)
+      document.removeEventListener('visibilitychange', refreshRoomState)
+      clearInterval(interval)
+    }
+  }, [roomId, realtime.channelReady])
+
+  useEffect(() => {
+    if (!room) return
+    gameState.syncFromRoom(room, getRoomRowCount(room))
+    // Room phase sync only depends on these canonical DB fields. Player list,
+    // coffee, and set changes should not restart local game state reconciliation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    room?.status,
+    room?.timer_started_at,
+    room?.paused_at,
+    room?.updated_at,
+    gameState.syncFromRoom,
+  ])
 
   // Event handlers
   const handleInvite = async (e: React.FormEvent) => {
@@ -276,6 +306,12 @@ function RoomPageContent() {
     const countdownStartedAt = Date.now()
     gameState.setCountdownFrom(5)
     gameState.setShowCountdown(true)
+    setRoom((prev) => prev ? {
+      ...prev,
+      status: 'countdown' as const,
+      active_set_id: selectedSetId,
+      updated_at: new Date(countdownStartedAt).toISOString(),
+    } : prev)
 
     if (realtime.roomChannel) {
       await realtime.roomChannel.send({
@@ -300,8 +336,8 @@ function RoomPageContent() {
       gameState.setShowCountdown(false)
       gameState.setFinishedPlayers([])
       gameState.setMyElapsedMs(null)
-      gameState.setAnswers(Array(8).fill(null))
-      gameState.setCorrectAnswers(Array(8).fill(null))
+      gameState.setAnswers(gameState.makeEmptyAnswers())
+      gameState.setCorrectAnswers(gameState.makeEmptyAnswers())
       gameState.updateGameState('playing', { timer: timerStartedAt })
       setRoom((prev) => prev ? { ...prev, status: 'playing' as const, timer_started_at: timerStartedAt } : prev)
 
@@ -313,8 +349,8 @@ function RoomPageContent() {
     } else {
       gameState.setShowCountdown(false)
       gameState.setWaitingForTimer(true)
-      gameState.setAnswers(Array(8).fill(null))
-      gameState.setCorrectAnswers(Array(8).fill(null))
+      gameState.setAnswers(gameState.makeEmptyAnswers())
+      gameState.setCorrectAnswers(gameState.makeEmptyAnswers())
       gameState.updateGameState('playing')
     }
   }
@@ -376,9 +412,16 @@ function RoomPageContent() {
       console.error('Finish error:', result.error)
       if (result.error === 'Game is not in progress') {
         gameState.setFinishLoading(false)
+        setRoom((prev) => prev ? {
+          ...prev,
+          status: 'waiting' as const,
+          timer_started_at: null,
+          paused_at: null,
+          active_set_id: null,
+        } : prev)
         gameState.updateGameState('lobby')
-        gameState.setAnswers(Array(8).fill(null))
-        gameState.setCorrectAnswers(Array(8).fill(null))
+        gameState.setAnswers(gameState.makeEmptyAnswers())
+        gameState.setCorrectAnswers(gameState.makeEmptyAnswers())
         gameState.setFinishedPlayers([])
         gameState.setMyElapsedMs(null)
         gameState.setIsPaused(false)
@@ -436,7 +479,7 @@ function RoomPageContent() {
     gameState.setCorrectAnswers(newCorrect)
 
     const revealedCount = newCorrect.filter((a) => a !== null).length
-    if (revealedCount === 8) {
+    if (revealedCount === newCorrect.length) {
       saveCorrectAnswers(roomId, newCorrect)
     }
   }
@@ -448,6 +491,13 @@ function RoomPageContent() {
       return
     }
 
+    setRoom((prev) => prev ? {
+      ...prev,
+      status: 'waiting' as const,
+      timer_started_at: null,
+      paused_at: null,
+      active_set_id: null,
+    } : prev)
     gameState.resetGameState()
     gameState.setEndRoundConfirm(false)
 
